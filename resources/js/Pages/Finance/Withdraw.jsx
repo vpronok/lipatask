@@ -146,7 +146,7 @@ export default function Withdraw({ balances, min_withdrawal }) {
                                 <input
                                     type="text"
                                     disabled
-                                    value={user.phone.replace(/^(07|01)/, '')} // Strip leading 0 to match format
+                                    value={user.phone.replace(/^0/, '')} // Strip leading 0 to match format
                                     className="w-full bg-transparent border-none px-4 py-3 text-white cursor-not-allowed focus:ring-0 tracking-widest font-medium"
                                 />
                             </div>

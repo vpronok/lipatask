@@ -115,7 +115,7 @@ export default function Recharge({ main_balance, phone, flash, errors }) {
                                 <div className="bg-[#1a0c29] px-4 py-3 border-r border-gray-800 flex items-center justify-center">
                                     <span className="text-xs font-black text-gray-500">KE +254</span>
                                 </div>
-                                <input type="text" disabled value={phone.replace(/^(07|01)/, '')} className="w-full bg-transparent border-none px-4 py-3 text-white cursor-not-allowed focus:ring-0 tracking-widest font-medium" />
+                                <input type="text" disabled value={phone.replace(/^0/, '')} className="w-full bg-transparent border-none px-4 py-3 text-white cursor-not-allowed focus:ring-0 tracking-widest font-medium" />
                             </div>
 
                             {/* STK Push Info Banner */}

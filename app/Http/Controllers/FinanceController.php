@@ -10,12 +10,12 @@ use Illuminate\Support\Facades\Http;
 
 class FinanceController extends Controller
 {
-    // --- WITHDRAWAL LOGIC (Existing) ---
+    // --- WITHDRAWAL LOGIC ---
     public function withdraw(Request $request)
     {
         $user = $request->user();
 
-        $teamEarnings = $user->transactions()->where('wallet', 'team')->whereIn('type', ['earning', 'commission', 'bonus'])->sum('amount');
+        $teamEarnings = $user->transactions()->where('wallet', 'team')->whereIn('type',['earning', 'commission', 'bonus'])->sum('amount');
         $teamWithdrawals = $user->transactions()->where('wallet', 'team')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
         $teamBalance = $teamEarnings - $teamWithdrawals;
 
@@ -23,7 +23,7 @@ class FinanceController extends Controller
         $mainWithdrawals = $user->transactions()->where('wallet', 'main')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
         $mainBalance = $mainEarnings - $mainWithdrawals;
 
-        return Inertia::render('Finance/Withdraw', [
+        return Inertia::render('Finance/Withdraw',[
             'balances' =>['team' => max(0, $teamBalance), 'main' => max(0, $mainBalance)],
             'min_withdrawal' => 155,
         ]);
@@ -51,7 +51,7 @@ class FinanceController extends Controller
         return back()->with('success', 'Your withdrawal request has been submitted successfully! It is now pending admin approval.');
     }
 
-    // --- NEW RECHARGE LOGIC ---
+    // --- RECHARGE LOGIC ---
     public function recharge(Request $request)
     {
         $user = $request->user();
@@ -83,17 +83,35 @@ class FinanceController extends Controller
         $callbackUrl = url('/api/payhero/callback');
 
         try {
-            require_once base_path('vendor/payherokenya/payhero-php/ph-class.php');
-            $payHeroAPI = new \PayHeroAPI($username, $password);
-            
-            $response = $payHeroAPI->SendCustomerMpesaStkPush((float) $request->amount, $user->phone, (int) $channelIdValue, $reference, $callbackUrl);
-            $result = json_decode($response, true);
+            // STRICT CASTING: Ensuring the PayHero API gets exact numbers, not strings
+            $payload =[
+                'amount' => (float) $request->amount,
+                'phone_number' => $user->phone,
+                'channel_id' => (int) $channelIdValue,
+                'provider' => 'm-pesa',
+                'external_reference' => $reference,
+                'callback_url' => $callbackUrl,
+            ];
 
-            if (isset($result['success']) && $result['success'] === false) {
-                return back()->withErrors(['pay' => 'PayHero Error: ' . ($result['message'] ?? 'Failed')]);
+            // Use Laravel Native HTTP to guarantee request formatting and catch errors properly
+            $response = Http::withBasicAuth($username, $password)
+                ->acceptJson()
+                ->asJson()
+                ->post('https://backend.payhero.co.ke/api/v2/payments', $payload);
+
+            $result = $response->json();
+
+            // Catch PayHero Rejection (e.g. Invalid channel or downtime)
+            if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
+                $errorMsg = $result['message'] ?? $result['error'] ?? $response->body() ?? 'Invalid payment request.';
+                Log::error('PayHero Recharge API Failed: ' . $response->body());
+                return back()->withErrors(['pay' => 'PayHero Error: ' . $errorMsg]);
             }
+
             return back()->with('success', 'Prompt Sent');
+
         } catch (\Exception $e) {
+            Log::error('PayHero Connection Error: ' . $e->getMessage());
             return back()->withErrors(['pay' => 'Failed to connect. Try again.']);
         }
     }
@@ -149,6 +167,7 @@ class FinanceController extends Controller
             return response()->json(['status' => 'pending']);
         }
     }
+
     // --- HISTORY LOGIC ---
     public function history(Request $request)
     {
@@ -179,14 +198,12 @@ class FinanceController extends Controller
         $activeRefs = $user->referrals()->where('is_active', true)->count();
         $bonusEarned = $user->transactions()->where('type', 'bonus')->sum('amount');
 
-        // Define the milestone tiers matching your screenshot
         $tiers = [['id' => 1, 'name' => 'Silver', 'required' => 65, 'reward' => 30],['id' => 2, 'name' => 'Bronze', 'required' => 150, 'reward' => 150],['id' => 3, 'name' => 'Gold', 'required' => 300, 'reward' => 300],
         ];
 
         $nextTier = null;
         $progressPercent = 100;
 
-        // Calculate progress to the next tier
         foreach ($tiers as $tier) {
             if ($activeRefs < $tier['required']) {
                 $nextTier = $tier;
