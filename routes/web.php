@@ -20,24 +20,34 @@ Route::get('/', function () {
 Route::middleware(['auth', 'verified'])->name('activation.')->group(function () {
     Route::get('/activation',[ActivationController::class, 'index'])->name('index');
     Route::post('/activation/pay',[ActivationController::class, 'initiatePayment'])->name('pay');
-    
-    // --- ADDED THIS POLLING ROUTE ---
     Route::post('/activation/check', [ActivationController::class, 'checkStatus'])->name('check');
 });
 
 // 3. Fully Protected User Routes (Requires User to be Active)
 Route::middleware(['auth', 'verified', 'active'])->group(function () {
     Route::get('/dashboard',[UserDashboardController::class, 'index'])->name('dashboard');
+    
+    // Profile
     Route::get('/profile',[ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
-    Route::get('/team', [TeamController::class, 'index'])->name('team');
-    Route::get('/leaderboard', [LeaderboardController::class, 'index'])->name('leaderboard');
+    Route::patch('/profile',[ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile',[ProfileController::class, 'destroy'])->name('profile.destroy');
+    
+    // Network & Tournament
+    Route::get('/team',[TeamController::class, 'index'])->name('team');
+    Route::get('/leaderboard',[LeaderboardController::class, 'index'])->name('leaderboard');
+    
+    // --- FINANCE ROUTES ---
     Route::get('/withdraw', [FinanceController::class, 'withdraw'])->name('withdraw');
-    Route::post('/withdraw', [FinanceController::class, 'storeWithdrawal'])->name('withdraw.store');
+    Route::post('/withdraw',[FinanceController::class, 'storeWithdrawal'])->name('withdraw.store');
+    
+    // New Recharge Routes
+    Route::get('/recharge', [FinanceController::class, 'recharge'])->name('recharge');
+    Route::post('/recharge/pay', [FinanceController::class, 'initiateRecharge'])->name('recharge.pay');
+    Route::post('/recharge/check', [FinanceController::class, 'checkRechargeStatus'])->name('recharge.check');
+    // ----------------------
 });
 
-// 4. Lipatask Admin Dashboard
+// 4. Chatwazungu Admin Dashboard
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
     Route::post('/withdrawals/{id}/approve',[AdminController::class, 'approveWithdrawal'])->name('withdrawals.approve');

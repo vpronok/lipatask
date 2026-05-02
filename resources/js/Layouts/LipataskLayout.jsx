@@ -20,7 +20,7 @@ export default function LipataskLayout({ children }) {
     const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
 
     // 2. Dropdown & Mobile Menu State
-    const[showUserMenu, setShowUserMenu] = useState(false);
+    const [showUserMenu, setShowUserMenu] = useState(false);
     const[isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     // 3. Auto-close mobile sidebar when navigating to a new page
@@ -32,6 +32,7 @@ export default function LipataskLayout({ children }) {
         <div className="flex h-screen bg-[#f4effa] dark:bg-[#090210] text-gray-800 dark:text-white font-sans overflow-hidden transition-colors duration-300 selection:bg-fuchsia-500 relative">
             
             {/* ================= MOBILE OVERLAY ================= */}
+            {/* This darkens the background on mobile when the sidebar slides out */}
             {isSidebarOpen && (
                 <div 
                     className="fixed inset-0 bg-gray-900/60 dark:bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity"
@@ -46,9 +47,9 @@ export default function LipataskLayout({ children }) {
                 <div className="h-20 flex items-center justify-between px-6 border-b border-purple-100 dark:border-purple-900/30">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-pink-500 p-[1px]">
-                            <div className="w-full h-full bg-white dark:bg-[#1a1125] rounded-full flex items-center justify-center font-black text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 to-pink-500">L</div>
+                            <div className="w-full h-full bg-white dark:bg-[#1a1125] rounded-full flex items-center justify-center font-black text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 to-pink-500">C</div>
                         </div>
-                        <span className="font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-pink-600 uppercase text-lg">LIPATASK</span>
+                        <span className="font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-pink-600 uppercase text-lg">CHATWAZUNGU</span>
                     </div>
                     {/* Mobile Close X */}
                     <button 
@@ -103,9 +104,12 @@ export default function LipataskLayout({ children }) {
                                 <Link href={route('withdraw')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('withdraw') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-rose-500">💸</span> Withdraw
                                 </Link>
-                                <button className="w-full flex items-center gap-3 px-3 py-2.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg transition text-sm font-medium">
+
+                                {/* --- RECHARGE LINK ACTIVATED HERE --- */}
+                                <Link href={route('recharge')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('recharge') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-green-500">💰</span> Recharge
-                                </button>
+                                </Link>
+                                
                                 <button className="w-full flex items-center gap-3 px-3 py-2.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg transition text-sm font-medium">
                                     <span className="text-blue-400">📜</span> History
                                 </button>

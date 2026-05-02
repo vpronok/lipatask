@@ -117,7 +117,7 @@ class ActivationController extends Controller
         }
     }
 
-    public function callback(Request $request)
+public function callback(Request $request)
     {
         $data = $request->all();
         Log::info('PayHero Webhook Received: ', $data);
@@ -126,17 +126,47 @@ class ActivationController extends Controller
 
         $status = $payload['Status'] ?? $payload['status'] ?? $payload['ResultDesc'] ?? '';
         $reference = $payload['ExternalReference'] ?? $payload['external_reference'] ?? '';
+        
+        // PayHero sends the amount in the payload
+        $amount = $payload['Amount'] ?? $payload['amount'] ?? $payload['TransAmount'] ?? 0;
 
         $isSuccess = stripos((string)$status, 'Success') !== false || stripos((string)$status, 'processed successfully') !== false;
 
-        if ($isSuccess && str_starts_with($reference, 'ACT_')) {
-            $parts = explode('_', $reference);
-            $userId = $parts[1] ?? null;
+        if ($isSuccess) {
+            // 1. Handle Account Activations
+            if (str_starts_with($reference, 'ACT_')) {
+                $parts = explode('_', $reference);
+                $userId = $parts[1] ?? null;
 
-            if ($userId) {
-                $user = User::find($userId);
-                if ($user && !$user->is_active) {
-                    $this->activateUser($user);
+                if ($userId) {
+                    $user = User::find($userId);
+                    if ($user && !$user->is_active) {
+                        $this->activateUser($user);
+                    }
+                }
+            } 
+            
+            // 2. Handle Wallet Recharges
+            elseif (str_starts_with($reference, 'RCH_')) {
+                $parts = explode('_', $reference);
+                $userId = $parts[1] ?? null;
+
+                if ($userId && $amount > 0) {
+                    $user = User::find($userId);
+                    if ($user) {
+                        // Check if we already credited this exact transaction to prevent duplicates
+                        $exists = $user->transactions()->where('description', "M-Pesa Deposit ($reference)")->exists();
+                        
+                        if (!$exists) {
+                            $user->transactions()->create([
+                                'amount' => $amount,
+                                'type' => 'earning', // Classified as an earning/deposit
+                                'wallet' => 'main',
+                                'status' => 'completed',
+                                'description' => "M-Pesa Deposit ($reference)"
+                            ]);
+                        }
+                    }
                 }
             }
         }
