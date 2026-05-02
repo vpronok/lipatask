@@ -29,12 +29,13 @@ class ActivationController extends Controller
         $user = $request->user();
         $feeValue = Setting::where('key', 'activation_fee')->first()?->value ?? 0;
 
-        $username = env('PAYHERO_USERNAME');
-        $password = env('PAYHERO_PASSWORD');
-        $channelIdValue = env('PAYHERO_CHANNEL_ID');
+        // CHANGED: Pulling securely from Config instead of raw env()
+        $username = config('services.payhero.username');
+        $password = config('services.payhero.password');
+        $channelIdValue = config('services.payhero.channel_id');
 
         if (!$username || !$password || !$channelIdValue) {
-            return back()->withErrors(['pay' => 'Payment gateway is not configured in the .env file yet.']);
+            return back()->withErrors(['pay' => 'Payment gateway is not configured correctly on the server.']);
         }
 
         $reference = 'ACT_' . $user->id . '_' . time(); 
@@ -42,6 +43,7 @@ class ActivationController extends Controller
 
         try {
             require_once base_path('vendor/payherokenya/payhero-php/ph-class.php');
+            
             $payHeroAPI = new \PayHeroAPI($username, $password);
             
             $response = $payHeroAPI->SendCustomerMpesaStkPush(
@@ -56,69 +58,53 @@ class ActivationController extends Controller
 
             if (isset($result['success']) && $result['success'] === false) {
                 $errorMsg = $result['message'] ?? 'Invalid payment request.';
+                Log::error('PayHero API Package Error: ' . $response);
                 return back()->withErrors(['pay' => 'PayHero Error: ' . $errorMsg]);
             }
 
             if (isset($result['error_code']) && $result['error_code'] === 'NOT_FOUND') {
-                return back()->withErrors(['pay' => 'PayHero Error: Channel ID (' . $channelIdValue . ') not found.']);
+                return back()->withErrors(['pay' => 'PayHero Error: Your Channel ID (' . $channelIdValue . ') was not found.']);
             }
 
             return back()->with('success', 'Prompt Sent');
 
         } catch (\Exception $e) {
+            Log::error('PayHero Connection Error: ' . $e->getMessage());
             return back()->withErrors(['pay' => 'Failed to connect to PayHero servers. Please try again.']);
         }
     }
 
-    // --- NEW METHOD FOR REACT TO POLL CONTINUOUSLY ---
     public function checkStatus(Request $request)
     {
         $user = $request->user();
         
-        // If the webhook already caught it, return success immediately
         if ($user->is_active) {
             return response()->json(['status' => 'success']);
         }
 
-        $username = env('PAYHERO_USERNAME');
-        $password = env('PAYHERO_PASSWORD');
+        // CHANGED: Pulling securely from Config
+        $username = config('services.payhero.username');
+        $password = config('services.payhero.password');
 
         try {
-            // Check PayHero manually for recent transactions
             $response = \Illuminate\Support\Facades\Http::withBasicAuth($username, $password)
                 ->get('https://backend.payhero.co.ke/api/v2/transactions');
 
             if ($response->successful()) {
                 $transactions = $response->json()['data'] ??[];
+                $phoneSuffix = substr(trim($user->phone), -9);
 
                 foreach ($transactions as $tx) {
-                    // If we find a successful transaction matching this phone number
-                    if (str_contains($tx['sender_phone'] ?? '', substr($user->phone, -9))) {
-                        
-                        if (strtoupper($tx['status']) === 'SUCCESS') {
-                            
-                            $user->update(['is_active' => true]);
+                    $txPhone = $tx['sender_phone'] ?? $tx['phone_number'] ?? $tx['Phone'] ?? '';
+                    $txStatus = strtoupper($tx['status'] ?? $tx['Status'] ?? '');
 
-                            // Award Signup Bonus
-                            $signupBonus = Setting::where('key', 'signup_bonus')->first()?->value ?? 0;
-                            if ($signupBonus > 0 && !$user->transactions()->where('description', 'Welcome Signup Bonus')->exists()) {
-                                $user->transactions()->create(['amount' => $signupBonus, 'type' => 'bonus', 'wallet' => 'main', 'status' => 'completed', 'description' => 'Welcome Signup Bonus']);
-                            }
-
-                            // Award Referrer Bonus
-                            if ($user->referred_by) {
-                                $refBonus = Setting::where('key', 'referral_bonus')->first()?->value ?? 0;
-                                if ($refBonus > 0) {
-                                    $referrer = User::find($user->referred_by);
-                                    if ($referrer && !$referrer->transactions()->where('description', 'Activation commission for ' . $user->username)->exists()) {
-                                        $referrer->transactions()->create(['amount' => $refBonus, 'type' => 'commission', 'wallet' => 'team', 'status' => 'completed', 'description' => 'Activation commission for ' . $user->username]);
-                                    }
-                                }
-                            }
+                    if (str_contains($txPhone, $phoneSuffix)) {
+                        if ($txStatus === 'SUCCESS') {
+                            $this->activateUser($user);
                             return response()->json(['status' => 'success']);
                         }
 
-                        if (strtoupper($tx['status']) === 'FAILED' || strtoupper($tx['status']) === 'CANCELLED') {
+                        if ($txStatus === 'FAILED' || $txStatus === 'CANCELLED') {
                             return response()->json(['status' => 'failed']);
                         }
                     }
@@ -133,10 +119,15 @@ class ActivationController extends Controller
 
     public function callback(Request $request)
     {
-        // (Keep the existing callback method intact just in case the server is live and catches it first)
-        $status = $request->input('status') ?? $request->input('ResultDesc');
-        $reference = $request->input('external_reference') ?? '';
-        $isSuccess = stripos((string)$status, 'Success') !== false;
+        $data = $request->all();
+        Log::info('PayHero Webhook Received: ', $data);
+
+        $payload = $request->input('response') ?? $data;
+
+        $status = $payload['Status'] ?? $payload['status'] ?? $payload['ResultDesc'] ?? '';
+        $reference = $payload['ExternalReference'] ?? $payload['external_reference'] ?? '';
+
+        $isSuccess = stripos((string)$status, 'Success') !== false || stripos((string)$status, 'processed successfully') !== false;
 
         if ($isSuccess && str_starts_with($reference, 'ACT_')) {
             $parts = explode('_', $reference);
@@ -145,25 +136,43 @@ class ActivationController extends Controller
             if ($userId) {
                 $user = User::find($userId);
                 if ($user && !$user->is_active) {
-                    $user->update(['is_active' => true]);
-                    
-                    $signupBonus = Setting::where('key', 'signup_bonus')->first()?->value ?? 0;
-                    if ($signupBonus > 0) {
-                        $user->transactions()->create(['amount' => $signupBonus, 'type' => 'bonus', 'wallet' => 'main', 'status' => 'completed', 'description' => 'Welcome Signup Bonus']);
-                    }
-
-                    if ($user->referred_by) {
-                        $refBonus = Setting::where('key', 'referral_bonus')->first()?->value ?? 0;
-                        if ($refBonus > 0) {
-                            $referrer = User::find($user->referred_by);
-                            if ($referrer) {
-                                $referrer->transactions()->create(['amount' => $refBonus, 'type' => 'commission', 'wallet' => 'team', 'status' => 'completed', 'description' => 'Activation commission for ' . $user->username]);
-                            }
-                        }
-                    }
+                    $this->activateUser($user);
                 }
             }
         }
+
         return response()->json(['status' => 'received']);
+    }
+
+    private function activateUser(User $user)
+    {
+        $user->update(['is_active' => true]);
+
+        $signupBonus = Setting::where('key', 'signup_bonus')->first()?->value ?? 0;
+        if ($signupBonus > 0 && !$user->transactions()->where('description', 'Welcome Signup Bonus')->exists()) {
+            $user->transactions()->create([
+                'amount' => $signupBonus,
+                'type' => 'bonus',
+                'wallet' => 'main',
+                'status' => 'completed',
+                'description' => 'Welcome Signup Bonus'
+            ]);
+        }
+
+        if ($user->referred_by) {
+            $refBonus = Setting::where('key', 'referral_bonus')->first()?->value ?? 0;
+            if ($refBonus > 0) {
+                $referrer = User::find($user->referred_by);
+                if ($referrer && !$referrer->transactions()->where('description', 'Activation commission for ' . $user->username)->exists()) {
+                    $referrer->transactions()->create([
+                        'amount' => $refBonus,
+                        'type' => 'commission',
+                        'wallet' => 'team',
+                        'status' => 'completed',
+                        'description' => 'Activation commission for ' . $user->username
+                    ]);
+                }
+            }
+        }
     }
 }
