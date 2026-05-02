@@ -22,7 +22,7 @@ export default function Register({ referrerName, refCode }) {
 
     return (
         <div className="min-h-screen relative flex items-center justify-center p-4 font-sans selection:bg-fuchsia-500 selection:text-white">
-            <Head title="Create Account | Lipatask" />
+            <Head title="Create Account | ChatWazungu" />
 
             {/* --- Starry Gradient Background --- */}
             <div className="fixed inset-0 z-0 bg-[#0a0214] bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#240b42] via-[#0a0214] to-[#05010a]">
@@ -42,7 +42,7 @@ export default function Register({ referrerName, refCode }) {
                         </div>
                     </div>
                     <div>
-                        <h1 className="text-white font-black text-lg tracking-wide uppercase">LIPATASK</h1>
+                        <h1 className="text-white font-black text-lg tracking-wide uppercase">CHATWAZUNGU</h1>
                         <p className="text-gray-400 text-xs">Create account — start earning today</p>
                     </div>
                 </div>
@@ -167,7 +167,7 @@ export default function Register({ referrerName, refCode }) {
 
             {/* Footer */}
             <div className="absolute bottom-6 w-full text-center z-10">
-                <p className="text-[10px] text-gray-600">© 2026 LIPATASK. All rights reserved.</p>
+                <p className="text-[10px] text-gray-600">© 2026 CHATWAZUNGU. All rights reserved.</p>
             </div>
         </div>
     );

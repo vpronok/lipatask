@@ -149,4 +149,59 @@ class FinanceController extends Controller
             return response()->json(['status' => 'pending']);
         }
     }
+    // --- HISTORY LOGIC ---
+    public function history(Request $request)
+    {
+        $user = $request->user();
+        
+        $transactions = $user->transactions()->latest()->get();
+        $paidOut = $user->transactions()->where('type', 'withdrawal')->where('status', 'completed')->sum('amount');
+        $paidCount = $user->transactions()->where('type', 'withdrawal')->where('status', 'completed')->count();
+        $pendingCount = $user->transactions()->where('type', 'withdrawal')->where('status', 'pending')->count();
+        $totalCount = $user->transactions()->count();
+
+        return Inertia::render('Finance/History',[
+            'transactions' => $transactions,
+            'stats' =>[
+                'paid_out' => number_format($paidOut, 2),
+                'paid_count' => $paidCount,
+                'pending_count' => $pendingCount,
+                'total_count' => $totalCount
+            ]
+        ]);
+    }
+
+    // --- BONUSES LOGIC ---
+    public function bonuses(Request $request)
+    {
+        $user = $request->user();
+        
+        $activeRefs = $user->referrals()->where('is_active', true)->count();
+        $bonusEarned = $user->transactions()->where('type', 'bonus')->sum('amount');
+
+        // Define the milestone tiers matching your screenshot
+        $tiers = [['id' => 1, 'name' => 'Silver', 'required' => 65, 'reward' => 30],['id' => 2, 'name' => 'Bronze', 'required' => 150, 'reward' => 150],['id' => 3, 'name' => 'Gold', 'required' => 300, 'reward' => 300],
+        ];
+
+        $nextTier = null;
+        $progressPercent = 100;
+
+        // Calculate progress to the next tier
+        foreach ($tiers as $tier) {
+            if ($activeRefs < $tier['required']) {
+                $nextTier = $tier;
+                $progressPercent = ($activeRefs / $tier['required']) * 100;
+                break;
+            }
+        }
+
+        return Inertia::render('Finance/Bonuses',[
+            'active_refs' => $activeRefs,
+            'bonus_earned' => number_format($bonusEarned, 2),
+            'tiers' => $tiers,
+            'next_tier' => $nextTier ? $nextTier['name'] : 'Maxed Out',
+            'progress_percent' => min(100, round($progressPercent, 1)),
+            'bonus_history' => $user->transactions()->where('type', 'bonus')->where('description', 'like', '%Tier%')->latest()->get()
+        ]);
+    }
 }

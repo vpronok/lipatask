@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 
 export default function LipataskLayout({ children }) {
-    const { auth, platform, url } = usePage().props;
+    // Correctly separated 'url' from the 'props' object
+    const { url, props } = usePage();
+    const { auth, platform } = props;
     const user = auth.user;
 
     // 1. Theme Toggle Logic
@@ -20,7 +22,7 @@ export default function LipataskLayout({ children }) {
     const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
 
     // 2. Dropdown & Mobile Menu State
-    const [showUserMenu, setShowUserMenu] = useState(false);
+    const[showUserMenu, setShowUserMenu] = useState(false);
     const[isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     // 3. Auto-close mobile sidebar when navigating to a new page
@@ -28,11 +30,15 @@ export default function LipataskLayout({ children }) {
         setIsSidebarOpen(false);
     }, [url]);
 
+    // Safe route checker to prevent White Screen crashes if a route isn't cached yet
+    const getRoute = (name) => {
+        try { return route(name); } catch (e) { return '#'; }
+    };
+
     return (
         <div className="flex h-screen bg-[#f4effa] dark:bg-[#090210] text-gray-800 dark:text-white font-sans overflow-hidden transition-colors duration-300 selection:bg-fuchsia-500 relative">
             
             {/* ================= MOBILE OVERLAY ================= */}
-            {/* This darkens the background on mobile when the sidebar slides out */}
             {isSidebarOpen && (
                 <div 
                     className="fixed inset-0 bg-gray-900/60 dark:bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity"
@@ -83,15 +89,15 @@ export default function LipataskLayout({ children }) {
                         <div>
                             <p className="text-[10px] font-bold text-gray-400 dark:text-yellow-500/80 tracking-widest uppercase mb-3 px-2">Main</p>
                             <div className="space-y-1">
-                                <Link href={route('dashboard')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('dashboard') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
+                                <Link href={getRoute('dashboard')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/dashboard') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-fuchsia-500">📊</span> Dashboard
                                 </Link>
                                 
-                                <Link href={route('team')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('team') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
+                                <Link href={getRoute('team')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/team') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-cyan-500">👥</span> Team members
                                 </Link>
 
-                                <Link href={route('leaderboard')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('leaderboard') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
+                                <Link href={getRoute('leaderboard')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/leaderboard') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-yellow-500">🏆</span> Leaderboard
                                 </Link>
                             </div>
@@ -101,21 +107,18 @@ export default function LipataskLayout({ children }) {
                         <div className="pt-4 border-t border-purple-200 dark:border-purple-900/30">
                             <p className="text-[10px] font-bold text-gray-400 dark:text-yellow-500/80 tracking-widest uppercase mb-3 px-2">Finance</p>
                             <div className="space-y-1">
-                                <Link href={route('withdraw')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('withdraw') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
+                                <Link href={getRoute('withdraw')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/withdraw') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-rose-500">💸</span> Withdraw
                                 </Link>
-
-                                {/* --- RECHARGE LINK ACTIVATED HERE --- */}
-                                <Link href={route('recharge')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('recharge') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
+                                <Link href={getRoute('recharge')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/recharge') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-green-500">💰</span> Recharge
                                 </Link>
-                                
-                                <button className="w-full flex items-center gap-3 px-3 py-2.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg transition text-sm font-medium">
+                                <Link href={getRoute('history')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/history') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-blue-400">📜</span> History
-                                </button>
-                                <button className="w-full flex items-center gap-3 px-3 py-2.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg transition text-sm font-medium">
+                                </Link>
+                                <Link href={getRoute('bonuses')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/bonuses') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-yellow-400">💎</span> Bonuses
-                                </button>
+                                </Link>
                             </div>
                         </div>
 
@@ -124,7 +127,7 @@ export default function LipataskLayout({ children }) {
                             <div className="pt-4 border-t border-purple-200 dark:border-purple-900/30">
                                 <p className="text-[10px] font-bold text-red-500 dark:text-red-400 tracking-widest uppercase mb-3 px-2">Administration</p>
                                 <div className="space-y-1">
-                                    <Link href={route('admin.dashboard')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('admin.dashboard') ? 'bg-red-100 dark:bg-gradient-to-r dark:from-red-900/50 dark:to-transparent border-l-2 border-red-500 text-red-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
+                                    <Link href={getRoute('admin.dashboard')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/admin') ? 'bg-red-100 dark:bg-gradient-to-r dark:from-red-900/50 dark:to-transparent border-l-2 border-red-500 text-red-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                         <span className="text-red-500">🛡️</span> Admin Panel
                                     </Link>
                                 </div>
@@ -145,10 +148,10 @@ export default function LipataskLayout({ children }) {
                                     <span className="text-emerald-500">💬</span> WhatsApp Group
                                 </a>
 
-                                <Link href={route('profile.edit')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('profile.edit') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
+                                <Link href={getRoute('profile.edit')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/profile') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-blue-500">👤</span> Profile
                                 </Link>
-                                <Link href={route('logout')} method="post" as="button" className="w-full flex items-center gap-3 px-3 py-2.5 text-gray-500 dark:text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition text-sm font-medium">
+                                <Link href={getRoute('logout')} method="post" as="button" className="w-full flex items-center gap-3 px-3 py-2.5 text-gray-500 dark:text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition text-sm font-medium">
                                     <span className="text-rose-500">🚪</span> Sign Out
                                 </Link>
                             </div>
@@ -200,10 +203,10 @@ export default function LipataskLayout({ children }) {
                                             <p className="text-sm text-gray-800 dark:text-white font-bold">{user.name}</p>
                                             <p className="text-xs text-gray-500 truncate">{user.email}</p>
                                         </div>
-                                        <Link href={route('profile.edit')} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition">
+                                        <Link href={getRoute('profile.edit')} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition">
                                             👤 Profile Settings
                                         </Link>
-                                        <Link href={route('logout')} method="post" as="button" className="w-full text-left flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
+                                        <Link href={getRoute('logout')} method="post" as="button" className="w-full text-left flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
                                             🚪 Sign Out
                                         </Link>
                                     </div>

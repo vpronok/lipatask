@@ -45,6 +45,10 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
     Route::post('/recharge/pay', [FinanceController::class, 'initiateRecharge'])->name('recharge.pay');
     Route::post('/recharge/check', [FinanceController::class, 'checkRechargeStatus'])->name('recharge.check');
     // ----------------------
+
+    //HISTORY routes
+    Route::get('/history', [\App\Http\Controllers\FinanceController::class, 'history'])->name('history');
+    Route::get('/bonuses',[\App\Http\Controllers\FinanceController::class, 'bonuses'])->name('bonuses');
 });
 
 // 4. Chatwazungu Admin Dashboard
