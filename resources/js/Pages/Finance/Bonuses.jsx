@@ -120,7 +120,7 @@ export default function Bonuses({ active_refs, bonus_earned, tiers, next_tier, p
                     })}
                 </div>
 
-                {/* --- Bonus History Table --- */}
+                {/* --- Bonus History Table yes --- */}
                 <div className="bg-[#11071c] rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
                     <div className="px-6 py-4 border-b border-gray-800 bg-[#1a0c29]">
                         <h3 className="font-bold text-sm text-gray-300 flex items-center gap-2 uppercase tracking-wider">
