@@ -35,7 +35,11 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
     // Network & Tournament
     Route::get('/team',[TeamController::class, 'index'])->name('team');
     Route::get('/leaderboard',[LeaderboardController::class, 'index'])->name('leaderboard');
-    
+        // --- LIVE TASKS ---
+    Route::get('/chat-to-earn',[\App\Http\Controllers\ChatToEarnController::class, 'index'])->name('chat-to-earn');
+    // SUBMISSION ROUTES:
+    Route::post('/chat-to-earn/complete', [\App\Http\Controllers\ChatToEarnController::class, 'completeTask'])->name('chat-to-earn.complete');
+
     // --- FINANCE ROUTES ---
     Route::get('/withdraw', [FinanceController::class, 'withdraw'])->name('withdraw');
     Route::post('/withdraw',[FinanceController::class, 'storeWithdrawal'])->name('withdraw.store');
@@ -57,6 +61,9 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('/withdrawals/{id}/approve',[AdminController::class, 'approveWithdrawal'])->name('withdrawals.approve');
     Route::post('/withdrawals/{id}/reject',[AdminController::class, 'rejectWithdrawal'])->name('withdrawals.reject');
     Route::post('/settings/update', [AdminController::class, 'updateSettings'])->name('settings.update');
+    // Users Management
+    Route::post('/users/{id}/update',[AdminController::class, 'updateUser'])->name('users.update');
+    Route::delete('/users/{id}/delete',[AdminController::class, 'deleteUser'])->name('users.delete');
 });
 
 require __DIR__.'/auth.php';

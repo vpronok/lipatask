@@ -92,4 +92,36 @@ class AdminController extends Controller
 
         return back();
     }
+    // --- USER MANAGEMENT METHODS ---
+    public function updateUser(Request $request, $id)
+    {
+        $user = User::findOrFail($id);
+        
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'phone' => 'required|string',
+            'email' => 'required|email',
+            'role' => 'required|in:admin,user',
+        ]);
+
+        $user->update([
+            'name' => $request->name,
+            'phone' => $request->phone,
+            'email' => $request->email,
+            'role' => $request->role,
+            'is_active' => $request->is_active ? true : false,
+        ]);
+
+        return back();
+    }
+
+    public function deleteUser($id)
+    {
+        $user = User::findOrFail($id);
+        // Prevent deleting yourself
+        if (auth()->id() !== $user->id) {
+            $user->delete();
+        }
+        return back();
+    }
 }

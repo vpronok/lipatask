@@ -100,6 +100,9 @@ export default function LipataskLayout({ children }) {
                                 <Link href={getRoute('leaderboard')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${url.startsWith('/leaderboard') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
                                     <span className="text-yellow-500">🏆</span> Leaderboard
                                 </Link>
+                                <Link href={route('chat-to-earn')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${route().current('chat-to-earn') ? 'bg-purple-100 dark:bg-gradient-to-r dark:from-purple-900/50 dark:to-transparent border-l-2 border-fuchsia-500 text-purple-700 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>
+                                    <span className="text-blue-500">🌍</span> Chat to Earn
+                                </Link>
                             </div>
                         </div>
 

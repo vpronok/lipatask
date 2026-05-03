@@ -1,14 +1,17 @@
 import LipataskLayout from '@/Layouts/LipataskLayout';
 import { Head, router, useForm } from '@inertiajs/react';
+import { useState } from 'react';
 
 export default function AdminDashboard({ stats, withdrawals, users, settings }) {
 
-    // 1. Unified Form logic for Platform Settings (API Keys securely hidden in backend!)
+    // 1. Unified Form logic for Platform Settings
     const { data, setData, post, processing, recentlySuccessful } = useForm({
         whatsapp_link: settings?.whatsapp_link || '',
         activation_fee: settings?.activation_fee || '',
         signup_bonus: settings?.signup_bonus || '',
         referral_bonus: settings?.referral_bonus || '',
+        pay_per_message: settings?.pay_per_message || '', 
+        task_withdraw_active: settings?.task_withdraw_active || '0', 
     });
 
     const submitSettings = (e) => {
@@ -21,13 +24,44 @@ export default function AdminDashboard({ stats, withdrawals, users, settings }) 
     // 2. Withdrawal Approval/Rejection Logic
     const handleWithdrawal = (id, action) => {
         if (confirm(`Are you sure you want to ${action} this withdrawal?`)) {
-            router.post(route(`admin.withdrawals.${action}`, id));
+            router.post(route(`admin.withdrawals.${action}`, id), {}, { preserveScroll: true });
+        }
+    };
+
+    // 3. User Editing State
+    const [editingUser, setEditingUser] = useState(null);
+    const userForm = useForm({
+        name: '', phone: '', email: '', role: 'user', is_active: false
+    });
+
+    const openEditModal = (user) => {
+        setEditingUser(user.id);
+        userForm.setData({
+            name: user.name,
+            phone: user.phone || '',
+            email: user.email,
+            role: user.role,
+            is_active: user.is_active
+        });
+    };
+
+    const submitUserEdit = (e, userId) => {
+        e.preventDefault();
+        userForm.post(route('admin.users.update', userId), {
+            preserveScroll: true,
+            onSuccess: () => setEditingUser(null),
+        });
+    };
+
+    const handleDeleteUser = (id) => {
+        if (confirm("Are you absolutely sure you want to delete this user? This action cannot be undone.")) {
+            router.delete(route('admin.users.delete', id), { preserveScroll: true });
         }
     };
 
     return (
         <LipataskLayout>
-            <Head title="Admin Control Center | Lipatask" />
+            <Head title="Admin Control Center | Chatwazungu" />
 
             <div className="mb-8 flex items-center justify-between">
                 <div>
@@ -85,6 +119,19 @@ export default function AdminDashboard({ stats, withdrawals, users, settings }) 
                                 <div>
                                     <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1.5">Referral Bonus</label>
                                     <input type="number" value={data.referral_bonus} onChange={e => setData('referral_bonus', e.target.value)} placeholder="KSh" className="w-full bg-gray-50 dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-2 text-sm text-gray-900 dark:text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500" />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1.5">Chat-to-Earn Rate</label>
+                                    <input type="number" step="0.5" value={data.pay_per_message} onChange={e => setData('pay_per_message', e.target.value)} placeholder="e.g. 5.00" className="w-full bg-gray-50 dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-2 text-sm text-gray-900 dark:text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1.5">Task Wallet Withdrawals</label>
+                                    <select value={data.task_withdraw_active} onChange={e => setData('task_withdraw_active', e.target.value)} className="w-full bg-gray-50 dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-2 text-sm text-gray-900 dark:text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
+                                        <option value="1">Enabled</option>
+                                        <option value="0">Disabled (Locked)</option>
+                                    </select>
                                 </div>
                             </div>
                         </div>
@@ -157,33 +204,65 @@ export default function AdminDashboard({ stats, withdrawals, users, settings }) 
                         <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">👥 Platform Users</h3>
                         <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs px-3 py-1 rounded-full font-bold">{users.length} Total</span>
                     </div>
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto pb-10">
                         <table className="w-full text-sm text-left text-gray-600 dark:text-gray-300">
                             <thead className="text-xs text-gray-500 dark:text-gray-400 uppercase bg-gray-100 dark:bg-[#0d0415]">
                                 <tr>
                                     <th className="px-6 py-3">User</th>
                                     <th className="px-6 py-3">Role & Status</th>
                                     <th className="px-6 py-3">Main Balance</th>
-                                    <th className="px-6 py-3">Referrals</th>
+                                    <th className="px-6 py-3 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                                 {users.map((u) => (
                                     <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <p className="font-bold text-gray-900 dark:text-white">{u.name}</p>
-                                            <p className="text-xs text-gray-500">@{u.username} • {u.phone}</p>
-                                        </td>
-                                        <td className="px-6 py-4 space-y-1">
-                                            <div className={`px-2.5 py-1 rounded text-[10px] uppercase font-black tracking-wider w-max ${u.role === 'admin' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
-                                                {u.role}
-                                            </div>
-                                            <div className={`px-2.5 py-0.5 rounded text-[9px] uppercase font-black tracking-wider w-max ${u.is_active ? 'text-emerald-500 border border-emerald-500/30' : 'text-rose-500 border border-rose-500/30'}`}>
-                                                {u.is_active ? 'Verified' : 'Unpaid'}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 font-black text-gray-900 dark:text-white">Ksh {u.balance}</td>
-                                        <td className="px-6 py-4 font-medium">{u.referrals_count} users</td>
+                                        
+                                        {editingUser !== u.id ? (
+                                            <>
+                                                {/* Standard View */}
+                                                <td className="px-6 py-4">
+                                                    <p className="font-bold text-gray-900 dark:text-white">{u.name}</p>
+                                                    <p className="text-xs text-gray-500">@{u.username} • {u.phone}</p>
+                                                </td>
+                                                <td className="px-6 py-4 space-y-1">
+                                                    <div className={`px-2.5 py-1 rounded text-[10px] uppercase font-black tracking-wider w-max ${u.role === 'admin' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
+                                                        {u.role}
+                                                    </div>
+                                                    <div className={`px-2.5 py-0.5 rounded text-[9px] uppercase font-black tracking-wider w-max ${u.is_active ? 'text-emerald-500 border border-emerald-500/30' : 'text-rose-500 border border-rose-500/30'}`}>
+                                                        {u.is_active ? 'Verified' : 'Unpaid'}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 font-black text-gray-900 dark:text-white">Ksh {u.balance}</td>
+                                                <td className="px-6 py-4 text-right space-x-2">
+                                                    <button onClick={() => openEditModal(u)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition mb-1 md:mb-0">Edit</button>
+                                                    <button onClick={() => handleDeleteUser(u.id)} className="bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition">Del</button>
+                                                </td>
+                                            </>
+                                        ) : (
+                                            <td colSpan="4" className="px-6 py-4 bg-gray-50 dark:bg-[#1a0c29]">
+                                                {/* Editing View (Inline Form) */}
+                                                <form onSubmit={(e) => submitUserEdit(e, u.id)} className="flex flex-col md:flex-row items-center gap-3 w-full">
+                                                    <input type="text" value={userForm.data.name} onChange={e => userForm.setData('name', e.target.value)} className="w-full md:w-1/4 bg-white dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded px-3 py-2 text-sm text-gray-900 dark:text-white" required placeholder="Name" />
+                                                    <input type="email" value={userForm.data.email} onChange={e => userForm.setData('email', e.target.value)} className="w-full md:w-1/4 bg-white dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded px-3 py-2 text-sm text-gray-900 dark:text-white" required placeholder="Email" />
+                                                    <input type="text" value={userForm.data.phone} onChange={e => userForm.setData('phone', e.target.value)} className="w-full md:w-1/4 bg-white dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded px-3 py-2 text-sm text-gray-900 dark:text-white" required placeholder="Phone" />
+                                                    
+                                                    <select value={userForm.data.role} onChange={e => userForm.setData('role', e.target.value)} className="w-full md:w-auto bg-white dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded px-3 py-2 text-xs text-gray-900 dark:text-white">
+                                                        <option value="user">User</option><option value="admin">Admin</option>
+                                                    </select>
+                                                    
+                                                    <select value={userForm.data.is_active ? '1' : '0'} onChange={e => userForm.setData('is_active', e.target.value === '1')} className="w-full md:w-auto bg-white dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded px-3 py-2 text-xs text-gray-900 dark:text-white">
+                                                        <option value="1">Verified</option><option value="0">Unpaid</option>
+                                                    </select>
+
+                                                    <div className="flex-1 text-right space-x-2 w-full md:w-auto flex justify-end">
+                                                        <button type="button" onClick={() => setEditingUser(null)} className="text-gray-500 hover:text-gray-700 dark:hover:text-white text-xs font-bold px-3 py-2">Cancel</button>
+                                                        <button type="submit" disabled={userForm.processing} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition">Save</button>
+                                                    </div>
+                                                </form>
+                                            </td>
+                                        )}
+
                                     </tr>
                                 ))}
                             </tbody>

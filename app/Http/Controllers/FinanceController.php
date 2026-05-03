@@ -23,15 +23,30 @@ class FinanceController extends Controller
         $mainWithdrawals = $user->transactions()->where('wallet', 'main')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
         $mainBalance = $mainEarnings - $mainWithdrawals;
 
+        // ADD: Task Wallet Balance
+        $taskEarnings = $user->transactions()->where('wallet', 'task')->sum('amount');
+        $taskWithdrawals = $user->transactions()->where('wallet', 'task')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
+        $taskBalance = $taskEarnings - $taskWithdrawals;
+
+        // ADD: Admin Toggle Check
+        $taskWithdrawalsEnabled = \App\Models\Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
+
         return Inertia::render('Finance/Withdraw',[
-            'balances' =>['team' => max(0, $teamBalance), 'main' => max(0, $mainBalance)],
+            'balances' =>['team' => max(0, $teamBalance), 'main' => max(0, $mainBalance), 'task' => max(0, $taskBalance)],
             'min_withdrawal' => 155,
+            'task_enabled' => $taskWithdrawalsEnabled
         ]);
     }
 
     public function storeWithdrawal(Request $request)
     {
-        $request->validate(['wallet' => 'required|in:team,main', 'amount' => 'required|numeric|min:155']);
+        $request->validate(['wallet' => 'required|in:team,main,task', 'amount' => 'required|numeric|min:155']);
+        
+        if ($request->wallet === 'task') {
+            $enabled = \App\Models\Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
+            if (!$enabled) return back()->withErrors(['amount' => 'Task wallet withdrawals are currently disabled by the admin.']);
+        }
+        
         $user = $request->user();
         $wallet = $request->wallet;
         $amount = $request->amount;
@@ -45,10 +60,10 @@ class FinanceController extends Controller
         }
 
         $user->transactions()->create([
-            'amount' => $amount, 'type' => 'withdrawal', 'wallet' => $wallet, 'status' => 'pending', 'description' => 'M-Pesa Withdrawal Request',
+            'amount' => $amount, 'type' => 'withdrawal', 'wallet' => $wallet, 'status' => 'pending', 'description' => 'Withdrawal Request',
         ]);
 
-        return back()->with('success', 'Your withdrawal request has been submitted successfully! It is now pending admin approval.');
+        return back()->with('success', 'Your withdrawal request has been submitted successfully!');
     }
 
     // --- RECHARGE LOGIC ---
