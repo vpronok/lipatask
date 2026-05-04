@@ -20,7 +20,8 @@ use Illuminate\Notifications\Notifiable;
     'role', 
     'referral_code', 
     'referred_by', 
-    'is_active'
+    'is_active',
+    'credits',
 ])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
