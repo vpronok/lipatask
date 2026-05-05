@@ -7,131 +7,109 @@ use App\Models\Transaction;
 use App\Models\Setting;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Carbon\Carbon;
 
 class AdminController extends Controller
 {
     public function index()
     {
-        // 1. Get Summary Stats
+        $today = Carbon::today();
+        
+        // 1. Fetch Master Settings to calculate Revenue
+        $settings = Setting::pluck('value', 'key')->toArray();
+        $activationFee = (float) ($settings['activation_fee'] ?? 0);
+
+        // 2. Platform Analytics (Daily & Historical)
+        $dailySignups = User::whereDate('updated_at', $today)->where('is_active', true)->count();
+        $dailyRevenue = $dailySignups * $activationFee;
+
+        $totalActiveUsers = User::where('is_active', true)->count();
+        $historicalRevenue = $totalActiveUsers * $activationFee;
+
         $totalUsers = User::count();
         $totalPendingWithdrawals = Transaction::where('type', 'withdrawal')->where('status', 'pending')->sum('amount');
         $totalPaidOut = Transaction::where('type', 'withdrawal')->where('status', 'completed')->sum('amount');
 
-        // 2. PENDING Withdrawals (Needs Action)
+        // 3. Withdrawals
         $pendingWithdrawals = Transaction::with('user:id,name,email,username,phone')
-            ->where('type', 'withdrawal')
-            ->where('status', 'pending')
-            ->latest()
-            ->get();
+            ->where('type', 'withdrawal')->where('status', 'pending')->latest()->get();
 
-        // 3. HISTORY Withdrawals (Already Processed - Approved/Rejected)
         $historyWithdrawals = Transaction::with('user:id,name,email,username,phone')
-            ->where('type', 'withdrawal')
-            ->whereIn('status',['completed', 'rejected'])
-            ->latest()
-            ->take(50) // Limit to latest 50 to prevent slow load times
-            ->get();
+            ->where('type', 'withdrawal')->whereIn('status', ['completed', 'rejected'])->latest()->take(100)->get();
 
-        // 4. Get User Statistics (Referrals & Balances)
-        $users = User::withCount('referrals')
+        // 4. Advanced User Data (Includes Total Income and Team List)
+        $users = User::with(['referrals:id,name,username,phone,is_active,created_at', 'referrer:id,name'])
             ->orderBy('id', 'desc')
             ->get()
             ->map(function ($user) {
+                // Calculate Balances
                 $mainBalance = $user->transactions()->where('wallet', 'main')->whereIn('type',['earning', 'commission', 'bonus'])->sum('amount') 
                              - $user->transactions()->where('wallet', 'main')->where('type', 'withdrawal')->sum('amount');
                              
+                $totalIncome = $user->transactions()->whereIn('type', ['earning', 'commission', 'bonus'])->sum('amount');
+
                 return[
                     'id' => $user->id,
                     'name' => $user->name,
                     'username' => $user->username,
-                    'phone' => $user->phone, // Added for Edit Modal
-                    'is_active' => $user->is_active, // Added for Edit Modal
-                    'referrals_count' => $user->referrals_count,
-                    'balance' => number_format($mainBalance, 2),
+                    'phone' => $user->phone,
+                    'email' => $user->email,
+                    'is_active' => $user->is_active,
                     'role' => $user->role,
+                    'balance' => number_format($mainBalance, 2),
+                    'total_income' => number_format($totalIncome, 2),
+                    'referrals_count' => $user->referrals->count(),
+                    'upline' => $user->referrer ? $user->referrer->name : 'Admin',
+                    'team' => $user->referrals, // Their specific downline
+                    'created_at' => $user->created_at,
                 ];
             });
 
-        // 5. Fetch ALL Settings (PayHero Keys, Fees, WhatsApp Link)
-        $settings = Setting::pluck('value', 'key')->toArray();
-
         return Inertia::render('Admin/Dashboard',[
-            'stats' =>[
+            'analytics' =>[
+                'daily_signups' => $dailySignups,
+                'daily_revenue' => number_format($dailyRevenue, 2),
                 'total_users' => $totalUsers,
+                'active_users' => $totalActiveUsers,
+                'historical_revenue' => number_format($historicalRevenue, 2),
                 'pending_payouts' => number_format($totalPendingWithdrawals, 2),
                 'total_paid' => number_format($totalPaidOut, 2),
             ],
             'withdrawals' => $pendingWithdrawals,
-            'withdrawal_history' => $historyWithdrawals, // Added to pass to React
+            'withdrawal_history' => $historyWithdrawals,
             'users' => $users,
             'settings' => $settings,
         ]);
     }
 
-    // --- WITHDRAWAL APPROVAL/REJECTION ---
-    public function approveWithdrawal($id)
-    {
-        $transaction = Transaction::findOrFail($id);
-        $transaction->update(['status' => 'completed']);
-        return back();
-    }
+    public function approveWithdrawal($id) { Transaction::findOrFail($id)->update(['status' => 'completed']); return back(); }
+    public function rejectWithdrawal($id) { Transaction::findOrFail($id)->update(['status' => 'rejected']); return back(); }
 
-    public function rejectWithdrawal($id)
-    {
-        $transaction = Transaction::findOrFail($id);
-        $transaction->update(['status' => 'rejected']);
-        return back();
-    }
-
-    // --- MEGA SAVER: Mass update for any setting ---
-    public function updateSettings(Request $request)
-    {
-        $data = $request->except(['_token']);
-        
-        foreach($data as $key => $value) {
-            if ($value !== null) {
-                Setting::updateOrCreate(
-                    ['key' => $key],['value' => $value]
-                );
-            }
-        }
-
-        return back();
-    }
-
-    // --- USER MANAGEMENT METHODS ---
     public function updateUser(Request $request, $id)
     {
         $user = User::findOrFail($id);
-        
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'phone' => 'required|string',
-            'email' => 'required|email',
-            'role' => 'required|in:admin,user',
-        ]);
+        $request->validate(['name' => 'required|string', 'phone' => 'required|string', 'email' => 'required|email', 'role' => 'required|in:admin,user']);
 
         $user->update([
-            'name' => $request->name,
-            'phone' => $request->phone,
-            'email' => $request->email,
-            'role' => $request->role,
-            // Cast strictly to boolean to prevent type errors
-            'is_active' => filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN),
+            'name' => $request->name, 'phone' => $request->phone, 'email' => $request->email, 
+            'role' => $request->role, 'is_active' => filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN),
         ]);
-
         return back();
     }
 
     public function deleteUser($id)
     {
         $user = User::findOrFail($id);
-        
-        // Safety check: Prevent the admin from deleting themselves!
-        if (auth()->id() !== $user->id) {
-            $user->delete();
+        if (auth()->id() !== $user->id) { $user->delete(); }
+        return back();
+    }
+
+    public function updateSettings(Request $request)
+    {
+        $data = $request->except(['_token']);
+        foreach($data as $key => $value) {
+            if ($value !== null) Setting::updateOrCreate(['key' => $key],['value' => $value]);
         }
-        
         return back();
     }
 }
