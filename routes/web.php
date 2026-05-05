@@ -17,63 +17,70 @@ Route::get('/', function () {
     return redirect()->route('login');
 });
 
-// 2. Unprotected Auth Routes (Activation Page)
+// =========================================================
+// 2. THE MASTER PAYHERO WEBHOOK (Exempt from CSRF!)
+// =========================================================
+Route::post('/api/payhero/callback', [ActivationController::class, 'callback'])
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])
+    ->name('payhero.callback');
+
+// 3. Unprotected Auth Routes (Activation Page)
 Route::middleware(['auth', 'verified'])->name('activation.')->group(function () {
-    Route::get('/activation',[ActivationController::class, 'index'])->name('index');
-    Route::post('/activation/pay',[ActivationController::class, 'initiatePayment'])->name('pay');
-    Route::post('/activation/check',[ActivationController::class, 'checkStatus'])->name('check');
+    Route::get('/activation', [ActivationController::class, 'index'])->name('index');
+    Route::post('/activation/pay', [ActivationController::class, 'initiatePayment'])->name('pay');
+    Route::post('/activation/check', [ActivationController::class, 'checkStatus'])->name('check');
 });
 
-// 3. Fully Protected User Routes (Requires User to be Active)
+// 4. Fully Protected User Routes (Requires User to be Active)
 Route::middleware(['auth', 'verified', 'active'])->group(function () {
     Route::get('/dashboard', [UserDashboardController::class, 'index'])->name('dashboard');
     
     // Profile
-    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::get('/profile',[ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile',[ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     
     // Network & Tournament
-    Route::get('/team', [TeamController::class, 'index'])->name('team');
-    Route::get('/leaderboard', [LeaderboardController::class, 'index'])->name('leaderboard');
+    Route::get('/team',[TeamController::class, 'index'])->name('team');
+    Route::get('/leaderboard',[LeaderboardController::class, 'index'])->name('leaderboard');
     
     // --- LIVE TASKS ---
-    Route::get('/chat-to-earn',[ChatToEarnController::class, 'index'])->name('chat-to-earn');
-    Route::post('/chat-to-earn/complete', [ChatToEarnController::class, 'completeTask'])->name('chat-to-earn.complete');
+    Route::get('/chat-to-earn', [ChatToEarnController::class, 'index'])->name('chat-to-earn');
+    Route::post('/chat-to-earn/complete',[ChatToEarnController::class, 'completeTask'])->name('chat-to-earn.complete');
     
-    // New Credit Purchase Routes (Added)
-    Route::post('/chat-to-earn/buy-credits', [ChatToEarnController::class, 'buyCredits'])->name('chat.credits.pay');
-    Route::post('/chat-to-earn/check-credits',[ChatToEarnController::class, 'checkCreditStatus'])->name('chat.credits.check');
+    // Credit Purchase Routes
+    Route::post('/chat-to-earn/buy-credits',[ChatToEarnController::class, 'buyCredits'])->name('chat.credits.pay');
+    Route::post('/chat-to-earn/check-credits', [ChatToEarnController::class, 'checkCreditStatus'])->name('chat.credits.check');
 
     // --- FINANCE ROUTES ---
-    Route::get('/withdraw', [FinanceController::class, 'withdraw'])->name('withdraw');
+    Route::get('/withdraw',[FinanceController::class, 'withdraw'])->name('withdraw');
     Route::post('/withdraw', [FinanceController::class, 'storeWithdrawal'])->name('withdraw.store');
     
     // Recharge Routes
-    Route::get('/recharge', [FinanceController::class, 'recharge'])->name('recharge');
-    Route::post('/recharge/pay',[FinanceController::class, 'initiateRecharge'])->name('recharge.pay');
-    Route::post('/recharge/check',[FinanceController::class, 'checkRechargeStatus'])->name('recharge.check');
+    Route::get('/recharge',[FinanceController::class, 'recharge'])->name('recharge');
+    Route::post('/recharge/pay', [FinanceController::class, 'initiateRecharge'])->name('recharge.pay');
+    Route::post('/recharge/check', [FinanceController::class, 'checkRechargeStatus'])->name('recharge.check');
     // ----------------------
 
     // HISTORY routes
-    Route::get('/history', [FinanceController::class, 'history'])->name('history');
-    Route::get('/bonuses', [FinanceController::class, 'bonuses'])->name('bonuses');
+    Route::get('/history',[FinanceController::class, 'history'])->name('history');
+    Route::get('/bonuses',[FinanceController::class, 'bonuses'])->name('bonuses');
 });
 
-// 4. Chatwazungu Admin Dashboard
+// 5. Chatwazungu Admin Dashboard
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
-    Route::get('/dashboard',[AdminController::class, 'index'])->name('dashboard');
+    Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
     
     // Withdrawals
-    Route::post('/withdrawals/{id}/approve', [AdminController::class, 'approveWithdrawal'])->name('withdrawals.approve');
-    Route::post('/withdrawals/{id}/reject', [AdminController::class, 'rejectWithdrawal'])->name('withdrawals.reject');
+    Route::post('/withdrawals/{id}/approve',[AdminController::class, 'approveWithdrawal'])->name('withdrawals.approve');
+    Route::post('/withdrawals/{id}/reject',[AdminController::class, 'rejectWithdrawal'])->name('withdrawals.reject');
     
     // Settings
-    Route::post('/settings/update',[AdminController::class, 'updateSettings'])->name('settings.update');
+    Route::post('/settings/update', [AdminController::class, 'updateSettings'])->name('settings.update');
     
     // Users Management
-    Route::post('/users/{id}/update', [AdminController::class, 'updateUser'])->name('users.update');
-    Route::delete('/users/{id}/delete', [AdminController::class, 'deleteUser'])->name('users.delete');
+    Route::post('/users/{id}/update',[AdminController::class, 'updateUser'])->name('users.update');
+    Route::delete('/users/{id}/delete',[AdminController::class, 'deleteUser'])->name('users.delete');
 });
 
 require __DIR__.'/auth.php';
