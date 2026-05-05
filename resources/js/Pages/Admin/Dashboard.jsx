@@ -4,14 +4,25 @@ import { useState } from 'react';
 
 export default function AdminDashboard({ stats, withdrawals, withdrawal_history, users, settings }) {
 
+    // 1. Unified Form logic for Platform Settings
     const { data, setData, post, processing, recentlySuccessful } = useForm({
-        whatsapp_link: settings?.whatsapp_link || '', activation_fee: settings?.activation_fee || '',
-        signup_bonus: settings?.signup_bonus || '', referral_bonus: settings?.referral_bonus || '',
-        pay_per_message: settings?.pay_per_message || '', task_withdraw_active: settings?.task_withdraw_active || '0', 
+        whatsapp_link: settings?.whatsapp_link || '',
+        activation_fee: settings?.activation_fee || '',
+        signup_bonus: settings?.signup_bonus || '',
+        referral_bonus: settings?.referral_bonus || '',
+        pay_per_message: settings?.pay_per_message || '', 
+        task_withdraw_active: settings?.task_withdraw_active || '0', 
+        withdrawal_fee: settings?.withdrawal_fee || '20', // Ensure Withdrawal Fee is saved
     });
 
-    const submitSettings = (e) => { e.preventDefault(); post(route('admin.settings.update'), { preserveScroll: true }); };
+    const submitSettings = (e) => {
+        e.preventDefault();
+        post(route('admin.settings.update'), {
+            preserveScroll: true,
+        });
+    };
 
+    // 2. Withdrawal Approval/Rejection Logic
     const handleWithdrawal = (id, action) => {
         if (confirm(`Are you sure you want to ${action} this withdrawal?`)) {
             router.post(route(`admin.withdrawals.${action}`, id), {}, { preserveScroll: true });
@@ -23,19 +34,26 @@ export default function AdminDashboard({ stats, withdrawals, withdrawal_history,
         alert("M-Pesa Number Copied: " + phone);
     };
 
-    // User Editing State - Using local state guarantees forms populate instantly
+    // 3. User Editing State
     const [editingUser, setEditingUser] = useState(null);
     const[editData, setEditData] = useState({});
 
     const openEditModal = (u) => {
         setEditingUser(u.id);
-        setEditData({ name: u.name, phone: u.phone, email: u.username + '@chatwazungu.com', role: u.role, is_active: u.is_active });
+        setEditData({ 
+            name: u.name, 
+            phone: u.phone || '', 
+            email: u.email || `${u.username}@chatwazungu.com`, 
+            role: u.role, 
+            is_active: u.is_active 
+        });
     };
 
     const submitUserEdit = (e, userId) => {
         e.preventDefault();
         router.post(route('admin.users.update', userId), editData, {
-            preserveScroll: true, onSuccess: () => setEditingUser(null),
+            preserveScroll: true, 
+            onSuccess: () => setEditingUser(null),
         });
     };
 
@@ -54,12 +72,32 @@ export default function AdminDashboard({ stats, withdrawals, withdrawal_history,
                     <h1 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-2">
                         <span className="text-red-500">🛡️</span> Admin <span className="text-fuchsia-500">Control Center</span>
                     </h1>
+                    <p className="text-sm text-gray-500 mt-1">Manage global platform settings, financial rules, and user payouts.</p>
                 </div>
             </div>
 
             <div className="space-y-8">
                 
-                {/* --- Master Configuration Form (Unchanged UI) --- */}
+                {/* --- Platform Overview Stats --- */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-white dark:bg-[#150a21] p-6 rounded-2xl border border-gray-100 dark:border-purple-900/50 shadow-sm dark:shadow-lg relative overflow-hidden">
+                        <div className="absolute right-0 top-0 w-24 h-24 bg-purple-500/10 rounded-full blur-2xl"></div>
+                        <p className="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider mb-2 font-bold">Total Platform Users</p>
+                        <h3 className="text-3xl font-black text-gray-900 dark:text-white">{stats.total_users}</h3>
+                    </div>
+                    <div className="bg-white dark:bg-[#150a21] p-6 rounded-2xl border border-gray-100 dark:border-yellow-900/50 shadow-sm dark:shadow-lg relative overflow-hidden">
+                        <div className="absolute right-0 top-0 w-24 h-24 bg-yellow-500/10 rounded-full blur-2xl"></div>
+                        <p className="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider mb-2 font-bold">Pending Payouts</p>
+                        <h3 className="text-3xl font-black text-yellow-600 dark:text-yellow-500">Ksh {stats.pending_payouts}</h3>
+                    </div>
+                    <div className="bg-white dark:bg-[#150a21] p-6 rounded-2xl border border-gray-100 dark:border-emerald-900/50 shadow-sm dark:shadow-lg relative overflow-hidden">
+                        <div className="absolute right-0 top-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl"></div>
+                        <p className="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider mb-2 font-bold">Total Paid Out</p>
+                        <h3 className="text-3xl font-black text-emerald-600 dark:text-emerald-400">Ksh {stats.total_paid}</h3>
+                    </div>
+                </div>
+
+                {/* --- MASTER PLATFORM SETTINGS FORM --- */}
                 <form onSubmit={submitSettings} className="bg-white dark:bg-[#11071c] rounded-2xl border border-gray-100 dark:border-purple-900/50 overflow-hidden shadow-sm dark:shadow-xl">
                     <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-[#1a0c29] flex justify-between items-center">
                         <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">⚙️ Master Configuration</h3>
@@ -85,15 +123,19 @@ export default function AdminDashboard({ stats, withdrawals, withdrawal_history,
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1.5">Task Rate</label>
+                                    <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1.5">Task Rate / Msg</label>
                                     <input type="number" step="0.5" value={data.pay_per_message} onChange={e => setData('pay_per_message', e.target.value)} className="w-full bg-gray-50 dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-2 text-sm text-white focus:border-emerald-500" />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1.5">Task Withdrawals</label>
-                                    <select value={data.task_withdraw_active} onChange={e => setData('task_withdraw_active', e.target.value)} className="w-full bg-gray-50 dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-2 text-sm text-white focus:border-emerald-500">
-                                        <option value="1">Enabled</option><option value="0">Disabled</option>
-                                    </select>
+                                    <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1.5">Withdrawal Fee</label>
+                                    <input type="number" value={data.withdrawal_fee} onChange={e => setData('withdrawal_fee', e.target.value)} className="w-full bg-gray-50 dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-2 text-sm text-white focus:border-emerald-500" />
                                 </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1.5">Task Wallet Withdrawals</label>
+                                <select value={data.task_withdraw_active} onChange={e => setData('task_withdraw_active', e.target.value)} className="w-full bg-gray-50 dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-2 text-sm text-white focus:border-emerald-500">
+                                    <option value="1">Enabled</option><option value="0">Disabled (Locked)</option>
+                                </select>
                             </div>
                         </div>
 
@@ -159,7 +201,7 @@ export default function AdminDashboard({ stats, withdrawals, withdrawal_history,
                     </div>
                     <div className="overflow-x-auto max-h-64 custom-scrollbar">
                         <table className="w-full text-sm text-left text-gray-600 dark:text-gray-300">
-                            <thead className="text-xs text-gray-500 dark:text-gray-400 uppercase bg-gray-100 dark:bg-[#0d0415] sticky top-0">
+                            <thead className="text-xs text-gray-500 dark:text-gray-400 uppercase bg-gray-100 dark:bg-[#0d0415] sticky top-0 z-10">
                                 <tr>
                                     <th className="px-6 py-3">User</th>
                                     <th className="px-6 py-3">Amount & Wallet</th>
@@ -241,6 +283,7 @@ export default function AdminDashboard({ stats, withdrawals, withdrawal_history,
                                                 {/* Editing View */}
                                                 <form onSubmit={(e) => submitUserEdit(e, u.id)} className="flex flex-col md:flex-row items-center gap-3 w-full">
                                                     <input type="text" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} className="w-full md:w-1/4 bg-white dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded px-3 py-2 text-sm text-gray-900 dark:text-white" required placeholder="Name" />
+                                                    <input type="email" value={editData.email} onChange={e => setEditData({...editData, email: e.target.value})} className="w-full md:w-1/4 bg-white dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded px-3 py-2 text-sm text-gray-900 dark:text-white" required placeholder="Email" />
                                                     <input type="text" value={editData.phone} onChange={e => setEditData({...editData, phone: e.target.value})} className="w-full md:w-1/4 bg-white dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded px-3 py-2 text-sm text-gray-900 dark:text-white" required placeholder="Phone" />
                                                     
                                                     <select value={editData.role} onChange={e => setEditData({...editData, role: e.target.value})} className="w-full md:w-auto bg-white dark:bg-[#090210] border border-gray-200 dark:border-gray-800 rounded px-3 py-2 text-xs text-gray-900 dark:text-white">

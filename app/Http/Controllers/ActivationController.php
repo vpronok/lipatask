@@ -8,6 +8,10 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Log;
 
+use Illuminate\Support\Facades\Mail;
+use App\Mail\WelcomeEmail;
+use App\Mail\ReferralEarned;
+
 class ActivationController extends Controller
 {
     public function index(Request $request)
@@ -178,15 +182,12 @@ public function callback(Request $request)
     {
         $user->update(['is_active' => true]);
 
+        // SEND WELCOME EMAIL
+        Mail::to($user->email)->send(new WelcomeEmail($user));
+
         $signupBonus = Setting::where('key', 'signup_bonus')->first()?->value ?? 0;
         if ($signupBonus > 0 && !$user->transactions()->where('description', 'Welcome Signup Bonus')->exists()) {
-            $user->transactions()->create([
-                'amount' => $signupBonus,
-                'type' => 'bonus',
-                'wallet' => 'main',
-                'status' => 'completed',
-                'description' => 'Welcome Signup Bonus'
-            ]);
+            $user->transactions()->create(['amount' => $signupBonus, 'type' => 'bonus', 'wallet' => 'main', 'status' => 'completed', 'description' => 'Welcome Signup Bonus']);
         }
 
         if ($user->referred_by) {
@@ -194,13 +195,17 @@ public function callback(Request $request)
             if ($refBonus > 0) {
                 $referrer = User::find($user->referred_by);
                 if ($referrer && !$referrer->transactions()->where('description', 'Activation commission for ' . $user->username)->exists()) {
-                    $referrer->transactions()->create([
-                        'amount' => $refBonus,
-                        'type' => 'commission',
-                        'wallet' => 'team',
-                        'status' => 'completed',
-                        'description' => 'Activation commission for ' . $user->username
-                    ]);
+                    
+                    // Award Commission
+                    $referrer->transactions()->create(['amount' => $refBonus, 'type' => 'commission', 'wallet' => 'team', 'status' => 'completed', 'description' => 'Activation commission for ' . $user->username]);
+
+                    // Calculate new balance for the email
+                    $earnings = $referrer->transactions()->where('wallet', 'team')->whereIn('type',['earning', 'commission', 'bonus'])->sum('amount');
+                    $withdrawals = $referrer->transactions()->where('wallet', 'team')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
+                    $newBalance = $earnings - $withdrawals;
+
+                    // SEND REFERRAL EARNED EMAIL
+                    Mail::to($referrer->email)->send(new ReferralEarned($referrer, $user->username, $refBonus, $newBalance));
                 }
             }
         }

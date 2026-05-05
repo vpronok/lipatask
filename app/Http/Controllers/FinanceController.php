@@ -23,18 +23,18 @@ class FinanceController extends Controller
         $mainWithdrawals = $user->transactions()->where('wallet', 'main')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
         $mainBalance = $mainEarnings - $mainWithdrawals;
 
-        // ADD: Task Wallet Balance
         $taskEarnings = $user->transactions()->where('wallet', 'task')->sum('amount');
         $taskWithdrawals = $user->transactions()->where('wallet', 'task')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
         $taskBalance = $taskEarnings - $taskWithdrawals;
 
-        // ADD: Admin Toggle Check
         $taskWithdrawalsEnabled = \App\Models\Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
+        $withdrawalFee = \App\Models\Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20; // Default Ksh 20
 
         return Inertia::render('Finance/Withdraw',[
             'balances' =>['team' => max(0, $teamBalance), 'main' => max(0, $mainBalance), 'task' => max(0, $taskBalance)],
             'min_withdrawal' => 155,
-            'task_enabled' => $taskWithdrawalsEnabled
+            'task_enabled' => $taskWithdrawalsEnabled,
+            'withdrawal_fee' => (float) $withdrawalFee // Pass to frontend
         ]);
     }
 
@@ -42,14 +42,14 @@ class FinanceController extends Controller
     {
         $request->validate(['wallet' => 'required|in:team,main,task', 'amount' => 'required|numeric|min:155']);
         
-        if ($request->wallet === 'task') {
-            $enabled = \App\Models\Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
-            if (!$enabled) return back()->withErrors(['amount' => 'Task wallet withdrawals are currently disabled by the admin.']);
-        }
-        
         $user = $request->user();
         $wallet = $request->wallet;
         $amount = $request->amount;
+        $fee = \App\Models\Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20;
+
+        if ($amount <= $fee) {
+            return back()->withErrors(['amount' => "Amount must be greater than the Ksh {$fee} withdrawal fee."]);
+        }
 
         $earnings = $user->transactions()->where('wallet', $wallet)->whereIn('type',['earning', 'commission', 'bonus'])->sum('amount');
         $withdrawals = $user->transactions()->where('wallet', $wallet)->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
@@ -59,13 +59,19 @@ class FinanceController extends Controller
             return back()->withErrors(['amount' => 'Insufficient funds in the selected wallet.']);
         }
 
+        $netPayout = $amount - $fee;
+
         $user->transactions()->create([
-            'amount' => $amount, 'type' => 'withdrawal', 'wallet' => $wallet, 'status' => 'pending', 'description' => 'Withdrawal Request',
+            'amount' => $amount, 
+            'type' => 'withdrawal', 
+            'wallet' => $wallet, 
+            'status' => 'pending', 
+            // Save the exact fee and payout explicitly in the DB description
+            'description' => "Withdrawal Request (Fee: Ksh {$fee}, Payout: Ksh {$netPayout})",
         ]);
 
-        return back()->with('success', 'Your withdrawal request has been submitted successfully!');
+        return back()->with('success', 'Request submitted successfully! Net payout of Ksh ' . $netPayout . ' is pending.');
     }
-
     // --- RECHARGE LOGIC ---
     public function recharge(Request $request)
     {
