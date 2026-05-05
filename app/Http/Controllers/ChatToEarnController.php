@@ -62,7 +62,9 @@ class ChatToEarnController extends Controller
     // --- M-PESA LOGIC FOR BUYING CREDITS ---
     public function buyCredits(Request $request)
     {
-        $request->validate(['amount' => 'required|numeric|min:50']); // Minimum Ksh 50
+        // Enforce the strict 10 to 49 KSh limit securely on the backend
+        $request->validate(['amount' => 'required|numeric|min:10|max:49']); 
+        
         $user = $request->user();
 
         $username = config('services.payhero.username');
@@ -76,12 +78,19 @@ class ChatToEarnController extends Controller
 
         try {
             $payload =[
-                'amount' => (float) $request->amount, 'phone_number' => $user->phone, 
-                'channel_id' => (int) $channelId, 'provider' => 'm-pesa', 
-                'external_reference' => $reference, 'callback_url' => $callbackUrl,
+                'amount' => (float) $request->amount, 
+                'phone_number' => $user->phone, 
+                'channel_id' => (int) $channelId, 
+                'provider' => 'm-pesa', 
+                'external_reference' => $reference, 
+                'callback_url' => $callbackUrl,
             ];
 
-            $response = Http::withBasicAuth($username, $password)->acceptJson()->asJson()->post('https://backend.payhero.co.ke/api/v2/payments', $payload);
+            $response = \Illuminate\Support\Facades\Http::withBasicAuth($username, $password)
+                            ->acceptJson()
+                            ->asJson()
+                            ->post('https://backend.payhero.co.ke/api/v2/payments', $payload);
+            
             $result = $response->json();
 
             if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {

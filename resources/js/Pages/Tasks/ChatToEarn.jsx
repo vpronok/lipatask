@@ -204,28 +204,40 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
             {modalState === 'recharge' && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/90 dark:bg-black/80 backdrop-blur-sm p-4">
                     <div className="bg-white dark:bg-[#11071c] w-full max-w-sm rounded-2xl border border-gray-200 dark:border-purple-500/30 p-6 shadow-2xl relative">
-                        <button onClick={() => setModalState('hidden')} className="absolute top-4 right-4 text-gray-500 hover:text-white bg-[#1a0e29] w-8 h-8 rounded-full flex items-center justify-center transition z-20">✖️</button>
+                        <button onClick={() => setModalState('hidden')} className="absolute top-4 right-4 text-gray-500 hover:text-white bg-gray-100 dark:bg-[#1a0e29] w-8 h-8 rounded-full flex items-center justify-center transition z-20">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
                         
                         <div className="text-center mb-6 mt-2">
                             <div className="w-14 h-14 bg-amber-500/20 text-amber-500 rounded-full flex items-center justify-center mx-auto text-2xl mb-3 shadow-[0_0_15px_rgba(245,158,11,0.2)]">💳</div>
-                            <h2 className="font-black text-xl text-white">Buy Chat Credits</h2>
-                            <p className="text-xs text-gray-400 mt-1">Minimum recharge Ksh 50</p>
+                            <h2 className="font-black text-xl text-gray-900 dark:text-white">Buy Chat Credits</h2>
+                            <p className="text-xs text-gray-500 mt-1">Min Ksh 10 • Max Ksh 49</p>
                         </div>
 
                         {errors?.pay && <div className="bg-red-500/10 text-red-500 text-xs p-3 rounded mb-4 text-center font-bold">{errors.pay}</div>}
 
                         <form onSubmit={handleBuyCredits}>
                             <div className="mb-6">
-                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Amount (Ksh)</label>
-                                <input type="number" min="50" value={data.amount} onChange={e => setData('amount', e.target.value)} required disabled={isPolling} placeholder="e.g. 100" className="w-full bg-[#1a0c29] border border-gray-800 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-fuchsia-500" />
+                                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Amount (Ksh)</label>
+                                <input 
+                                    type="number" 
+                                    min="10" 
+                                    max="49" 
+                                    value={data.amount} 
+                                    onChange={e => setData('amount', e.target.value)} 
+                                    required 
+                                    disabled={isPolling} 
+                                    placeholder="e.g. 20" 
+                                    className="w-full bg-gray-50 dark:bg-[#1a0c29] border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white rounded-xl px-4 py-3 focus:ring-1 focus:ring-fuchsia-500" 
+                                />
                             </div>
 
                             {isPolling ? (
-                                <div className="w-full bg-[#1a0e29] border border-amber-500/50 py-3 rounded-xl flex justify-center items-center gap-3">
-                                    <span className="text-amber-500 animate-pulse font-bold text-sm">{pollMessage}</span>
+                                <div className="w-full bg-gray-100 dark:bg-[#1a0e29] border border-amber-500/50 py-3 rounded-xl flex justify-center items-center gap-3">
+                                    <span className="text-amber-600 dark:text-amber-500 animate-pulse font-bold text-sm">{pollMessage}</span>
                                 </div>
                             ) : (
-                                <button type="submit" disabled={processing} className={`w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition ${processing && 'opacity-50 cursor-wait'}`}>
+                                <button type="submit" disabled={processing} className={`w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition shadow-[0_0_15px_rgba(16,185,129,0.3)] ${processing && 'opacity-50 cursor-wait'}`}>
                                     Pay with M-Pesa
                                 </button>
                             )}

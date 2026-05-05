@@ -28,23 +28,37 @@ class FinanceController extends Controller
         $taskBalance = $taskEarnings - $taskWithdrawals;
 
         $taskWithdrawalsEnabled = \App\Models\Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
-        $withdrawalFee = \App\Models\Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20; // Default Ksh 20
+        $withdrawalFee = \App\Models\Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20;
 
         return Inertia::render('Finance/Withdraw',[
             'balances' =>['team' => max(0, $teamBalance), 'main' => max(0, $mainBalance), 'task' => max(0, $taskBalance)],
-            'min_withdrawal' => 155,
+            // Send unique dynamic minimums to the React UI
+            'min_withdrawals' =>['team' => 170, 'main' => 155, 'task' => 155], 
             'task_enabled' => $taskWithdrawalsEnabled,
-            'withdrawal_fee' => (float) $withdrawalFee // Pass to frontend
+            'withdrawal_fee' => (float) $withdrawalFee
         ]);
     }
 
     public function storeWithdrawal(Request $request)
     {
-        $request->validate(['wallet' => 'required|in:team,main,task', 'amount' => 'required|numeric|min:155']);
+        $request->validate(['wallet' => 'required|in:team,main,task', 'amount' => 'required|numeric']);
         
-        $user = $request->user();
+        // Setup array for dynamic minimum validation
+        $minimums =['team' => 170, 'main' => 155, 'task' => 155];
         $wallet = $request->wallet;
         $amount = $request->amount;
+
+        // Ensure amount meets the required minimum for the selected wallet
+        if ($amount < $minimums[$wallet]) {
+            return back()->withErrors(['amount' => "Minimum withdrawal for {$wallet} wallet is Ksh {$minimums[$wallet]}."]);
+        }
+        
+        if ($wallet === 'task') {
+            $enabled = \App\Models\Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
+            if (!$enabled) return back()->withErrors(['amount' => 'Task wallet withdrawals are currently disabled by the admin.']);
+        }
+        
+        $user = $request->user();
         $fee = \App\Models\Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20;
 
         if ($amount <= $fee) {
@@ -66,7 +80,6 @@ class FinanceController extends Controller
             'type' => 'withdrawal', 
             'wallet' => $wallet, 
             'status' => 'pending', 
-            // Save the exact fee and payout explicitly in the DB description
             'description' => "Withdrawal Request (Fee: Ksh {$fee}, Payout: Ksh {$netPayout})",
         ]);
 

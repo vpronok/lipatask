@@ -2,12 +2,12 @@ import LipataskLayout from '@/Layouts/LipataskLayout';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import { useState, useEffect } from 'react';
 
-export default function Withdraw({ balances, min_withdrawal, task_enabled, withdrawal_fee }) {
+export default function Withdraw({ balances, min_withdrawals, task_enabled, withdrawal_fee }) {
     const { auth, flash } = usePage().props;
     const user = auth.user;
 
     // Local state for UI selection
-    const [selectedWallet, setSelectedWallet] = useState('team'); 
+    const[selectedWallet, setSelectedWallet] = useState('team'); 
 
     // Inertia Form Setup
     const { data, setData, post, processing, errors, reset } = useForm({
@@ -33,7 +33,8 @@ export default function Withdraw({ balances, min_withdrawal, task_enabled, withd
         });
     };
 
-    // Calculate Net Payout Live
+    // Calculate live math
+    const currentMin = min_withdrawals[selectedWallet];
     const netPayout = data.amount && data.amount > withdrawal_fee 
         ? (data.amount - withdrawal_fee).toFixed(2) 
         : '0.00';
@@ -142,13 +143,16 @@ export default function Withdraw({ balances, min_withdrawal, task_enabled, withd
                                     <span className="bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-500 p-1 rounded">💵</span>
                                     Amount to Withdraw
                                 </label>
-                                <span className="text-[10px] text-gray-500 font-bold bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">Min KSh {min_withdrawal}</span>
+                                {/* Automatically updates the minimum based on the active wallet! */}
+                                <span className="text-[10px] text-gray-500 font-bold bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                                    Min KSh {currentMin}
+                                </span>
                             </div>
                             
                             <div className="relative mb-4">
                                 <input
                                     type="number"
-                                    min={min_withdrawal}
+                                    min={currentMin}
                                     step="0.01"
                                     value={data.amount}
                                     onChange={(e) => setData('amount', e.target.value)}
