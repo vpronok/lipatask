@@ -16,7 +16,7 @@ class ChatToEarnController extends Controller
         $chatEarnings = $user->transactions()->where('type', 'earning')->where('description', 'like', '%Chat%')->sum('amount');
         $chatsDone = $user->transactions()->where('type', 'earning')->where('description', 'like', '%Chat%')->count();
 
-        return Inertia::render('Tasks/ChatToEarn', [
+        return Inertia::render('Tasks/ChatToEarn',[
             'stats' =>['tasks_available' => 1, 'done' => $chatsDone, 'earned' => number_format($chatEarnings, 2)],
             'pay_per_message' => 15.00,
             'cost_per_message' => 2.00,
@@ -54,11 +54,12 @@ class ChatToEarnController extends Controller
         return back()->withErrors(['chat' => 'Not enough credits to claim earnings.']);
     }
 
-    // --- BULLETPROOF M-PESA LOGIC ---
     public function buyCredits(Request $request)
     {
-        $request->validate(['amount' => 'required|numeric|min:10|max:49']); 
         $user = $request->user();
+        
+        // STRICT RULE: Hardcoded to exactly Ksh 49.00
+        $fixedAmount = 49.00; 
 
         $username = config('services.payhero.username');
         $password = config('services.payhero.password');
@@ -66,17 +67,15 @@ class ChatToEarnController extends Controller
 
         if (!$username || !$password || !$channelId) return back()->withErrors(['pay' => 'Gateway not configured.']);
 
-        // 1. Generate the unique reference
         $reference = 'CRE_' . $user->id . '_' . time(); 
-        
-        // 2. STORE THIS IN THE SESSION TO POLL ACCURATELY!
         $request->session()->put('pending_credit_ref', $reference);
 
-        $callbackUrl = url('/api/payhero/callback');
+        // POINTING TO THE CSRF-EXEMPT WEBHOOK TUNNEL
+        $callbackUrl = route('payhero.callback');
 
         try {
             $payload =[
-                'amount' => (float) $request->amount, 
+                'amount' => $fixedAmount, 
                 'phone_number' => $user->phone, 
                 'channel_id' => (int) $channelId, 
                 'provider' => 'm-pesa', 
@@ -84,11 +83,7 @@ class ChatToEarnController extends Controller
                 'callback_url' => $callbackUrl,
             ];
 
-            $response = Http::withBasicAuth($username, $password)
-                ->acceptJson()
-                ->asJson()
-                ->post('https://backend.payhero.co.ke/api/v2/payments', $payload);
-            
+            $response = Http::withBasicAuth($username, $password)->acceptJson()->asJson()->post('https://backend.payhero.co.ke/api/v2/payments', $payload);
             $result = $response->json();
 
             if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
@@ -103,75 +98,47 @@ class ChatToEarnController extends Controller
     public function checkCreditStatus(Request $request)
     {
         $user = $request->user();
-        
-        // Retrieve the exact reference we are waiting for
         $reference = $request->session()->get('pending_credit_ref');
 
-        if (!$reference) {
-            // Fallback: If session is lost, just check if the webhook credited them recently
-            $recent = $user->transactions()->where('description', 'like', 'Credit Purchase%')->where('created_at', '>=', now()->subMinutes(5))->first();
-            if ($recent) return response()->json(['status' => 'success']);
-            return response()->json(['status' => 'pending']);
-        }
-
-        // 1. Check local DB first (in case the Webhook beat the polling)
+        // 1. Did the webhook catch it?
         if ($user->transactions()->where('description', "Credit Purchase ($reference)")->exists()) {
             $request->session()->forget('pending_credit_ref');
             return response()->json(['status' => 'success']);
         }
 
-        // 2. Safely Poll PayHero Direct History
+        // 2. Poll fallback (Manual Check)
         try {
-            $username = config('services.payhero.username');
-            $password = config('services.payhero.password');
-
-            // Pass the exact reference in the GET request parameters so PayHero bypasses limits
-            $response = Http::withBasicAuth($username, $password)
-                ->get('https://backend.payhero.co.ke/api/v2/transactions',[
-                    'external_reference' => $reference
-                ]);
+            $response = Http::withBasicAuth(config('services.payhero.username'), config('services.payhero.password'))->get('https://backend.payhero.co.ke/api/v2/transactions');
 
             if ($response->successful()) {
                 $transactions = $response->json()['data'] ??[];
+                $phoneSuffix = substr(trim($user->phone), -9);
 
                 foreach ($transactions as $tx) {
-                    $txRef = $tx['external_reference'] ?? $tx['ExternalReference'] ?? '';
+                    $txPhone = $tx['sender_phone'] ?? $tx['phone_number'] ?? '';
                     $txStatus = strtoupper($tx['status'] ?? $tx['Status'] ?? '');
-                    $txAmount = $tx['amount'] ?? $tx['Amount'] ?? 0;
+                    $txRef = $tx['external_reference'] ?? '';
+                    $txAmount = $tx['amount'] ?? 0;
 
-                    // Match strictly against our known reference!
-                    if ($txRef === $reference) {
-                        if ($txStatus === 'SUCCESS') {
-                            
-                            // Double verify to prevent exploiting
-                            if (!$user->transactions()->where('description', "Credit Purchase ($reference)")->exists()) {
-                                $user->increment('credits', $txAmount);
-                                $user->transactions()->create([
-                                    'amount' => $txAmount, 
-                                    'type' => 'purchase', 
-                                    'wallet' => 'system', 
-                                    'status' => 'completed', 
-                                    'description' => "Credit Purchase ($reference)"
-                                ]);
-                            }
-                            
+                    // Match strictly against the phone and success status
+                    if (str_contains($txPhone, $phoneSuffix) && $txStatus === 'SUCCESS') {
+                        
+                        // Make sure we didn't already process this in the last 5 minutes
+                        $exists = $user->transactions()->where('description', 'like', 'Credit Purchase%')->where('created_at', '>=', now()->subMinutes(5))->exists();
+                        
+                        if (!$exists) {
+                            $user->increment('credits', $txAmount);
+                            $user->transactions()->create([
+                                'amount' => $txAmount, 'type' => 'purchase', 'wallet' => 'system', 'status' => 'completed', 'description' => "Credit Purchase ($reference)"
+                            ]);
                             $request->session()->forget('pending_credit_ref');
                             return response()->json(['status' => 'success']);
-                        }
-
-                        if (in_array($txStatus,['FAILED', 'CANCELLED', 'REJECTED'])) {
-                            $request->session()->forget('pending_credit_ref');
-                            return response()->json(['status' => 'failed']);
                         }
                     }
                 }
             }
-            
-            // Still waiting for Safaricom to complete the processing...
             return response()->json(['status' => 'pending']);
-
         } catch (\Exception $e) {
-            // Silently fail and wait for the next 4-second poll loop
             return response()->json(['status' => 'pending']);
         }
     }
