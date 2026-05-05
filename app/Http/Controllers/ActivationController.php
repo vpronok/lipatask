@@ -7,7 +7,6 @@ use App\Models\Setting;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Log;
-
 use Illuminate\Support\Facades\Mail;
 use App\Mail\WelcomeEmail;
 use App\Mail\ReferralEarned;
@@ -33,7 +32,6 @@ class ActivationController extends Controller
         $user = $request->user();
         $feeValue = Setting::where('key', 'activation_fee')->first()?->value ?? 0;
 
-        // CHANGED: Pulling securely from Config instead of raw env()
         $username = config('services.payhero.username');
         $password = config('services.payhero.password');
         $channelIdValue = config('services.payhero.channel_id');
@@ -86,7 +84,6 @@ class ActivationController extends Controller
             return response()->json(['status' => 'success']);
         }
 
-        // CHANGED: Pulling securely from Config
         $username = config('services.payhero.username');
         $password = config('services.payhero.password');
 
@@ -108,7 +105,7 @@ class ActivationController extends Controller
                             return response()->json(['status' => 'success']);
                         }
 
-                        if ($txStatus === 'FAILED' || $txStatus === 'CANCELLED') {
+                        if (in_array($txStatus, ['FAILED', 'CANCELLED'])) {
                             return response()->json(['status' => 'failed']);
                         }
                     }
@@ -121,7 +118,7 @@ class ActivationController extends Controller
         }
     }
 
-public function callback(Request $request)
+    public function callback(Request $request)
     {
         $data = $request->all();
         Log::info('PayHero Webhook Received: ', $data);
@@ -130,14 +127,13 @@ public function callback(Request $request)
 
         $status = $payload['Status'] ?? $payload['status'] ?? $payload['ResultDesc'] ?? '';
         $reference = $payload['ExternalReference'] ?? $payload['external_reference'] ?? '';
-        
-        // PayHero sends the amount in the payload
         $amount = $payload['Amount'] ?? $payload['amount'] ?? $payload['TransAmount'] ?? 0;
 
         $isSuccess = stripos((string)$status, 'Success') !== false || stripos((string)$status, 'processed successfully') !== false;
 
         if ($isSuccess) {
-            // 1. Handle Account Activations
+            
+            // 1. Handle Account Activations (ACT_)
             if (str_starts_with($reference, 'ACT_')) {
                 $parts = explode('_', $reference);
                 $userId = $parts[1] ?? null;
@@ -150,7 +146,7 @@ public function callback(Request $request)
                 }
             } 
             
-            // 2. Handle Wallet Recharges
+            // 2. Handle Wallet Recharges (RCH_)
             elseif (str_starts_with($reference, 'RCH_')) {
                 $parts = explode('_', $reference);
                 $userId = $parts[1] ?? null;
@@ -158,13 +154,11 @@ public function callback(Request $request)
                 if ($userId && $amount > 0) {
                     $user = User::find($userId);
                     if ($user) {
-                        // Check if we already credited this exact transaction to prevent duplicates
                         $exists = $user->transactions()->where('description', "M-Pesa Deposit ($reference)")->exists();
-                        
                         if (!$exists) {
                             $user->transactions()->create([
                                 'amount' => $amount,
-                                'type' => 'earning', // Classified as an earning/deposit
+                                'type' => 'earning',
                                 'wallet' => 'main',
                                 'status' => 'completed',
                                 'description' => "M-Pesa Deposit ($reference)"
@@ -173,6 +167,30 @@ public function callback(Request $request)
                     }
                 }
             }
+
+            // 3. Handle Chat Credit Purchases (CRE_)
+            elseif (str_starts_with($reference, 'CRE_')) {
+                $parts = explode('_', $reference);
+                $userId = $parts[1] ?? null;
+
+                if ($userId && $amount > 0) {
+                    $user = User::find($userId);
+                    if ($user) {
+                        $exists = $user->transactions()->where('description', "Credit Purchase ($reference)")->exists();
+                        if (!$exists) {
+                            $user->increment('credits', $amount);
+                            $user->transactions()->create([
+                                'amount' => $amount,
+                                'type' => 'purchase', // Marked as purchase to avoid inflating cash balances
+                                'wallet' => 'system',
+                                'status' => 'completed',
+                                'description' => "Credit Purchase ($reference)"
+                            ]);
+                        }
+                    }
+                }
+            }
+
         }
 
         return response()->json(['status' => 'received']);
@@ -182,12 +200,22 @@ public function callback(Request $request)
     {
         $user->update(['is_active' => true]);
 
-        // SEND WELCOME EMAIL
-        Mail::to($user->email)->send(new WelcomeEmail($user));
+        // Send Welcome Email
+        try {
+            Mail::to($user->email)->send(new WelcomeEmail($user));
+        } catch (\Exception $e) {
+            Log::error("Failed to send welcome email to {$user->email}: " . $e->getMessage());
+        }
 
         $signupBonus = Setting::where('key', 'signup_bonus')->first()?->value ?? 0;
         if ($signupBonus > 0 && !$user->transactions()->where('description', 'Welcome Signup Bonus')->exists()) {
-            $user->transactions()->create(['amount' => $signupBonus, 'type' => 'bonus', 'wallet' => 'main', 'status' => 'completed', 'description' => 'Welcome Signup Bonus']);
+            $user->transactions()->create([
+                'amount' => $signupBonus, 
+                'type' => 'bonus', 
+                'wallet' => 'main', 
+                'status' => 'completed', 
+                'description' => 'Welcome Signup Bonus'
+            ]);
         }
 
         if ($user->referred_by) {
@@ -197,15 +225,24 @@ public function callback(Request $request)
                 if ($referrer && !$referrer->transactions()->where('description', 'Activation commission for ' . $user->username)->exists()) {
                     
                     // Award Commission
-                    $referrer->transactions()->create(['amount' => $refBonus, 'type' => 'commission', 'wallet' => 'team', 'status' => 'completed', 'description' => 'Activation commission for ' . $user->username]);
+                    $referrer->transactions()->create([
+                        'amount' => $refBonus, 
+                        'type' => 'commission', 
+                        'wallet' => 'team', 
+                        'status' => 'completed', 
+                        'description' => 'Activation commission for ' . $user->username
+                    ]);
 
-                    // Calculate new balance for the email
-                    $earnings = $referrer->transactions()->where('wallet', 'team')->whereIn('type',['earning', 'commission', 'bonus'])->sum('amount');
-                    $withdrawals = $referrer->transactions()->where('wallet', 'team')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
-                    $newBalance = $earnings - $withdrawals;
+                    // Send Email to Referrer
+                    try {
+                        $earnings = $referrer->transactions()->where('wallet', 'team')->whereIn('type',['earning', 'commission', 'bonus'])->sum('amount');
+                        $withdrawals = $referrer->transactions()->where('wallet', 'team')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
+                        $newBalance = $earnings - $withdrawals;
 
-                    // SEND REFERRAL EARNED EMAIL
-                    Mail::to($referrer->email)->send(new ReferralEarned($referrer, $user->username, $refBonus, $newBalance));
+                        Mail::to($referrer->email)->send(new ReferralEarned($referrer, $user->username, $refBonus, $newBalance));
+                    } catch (\Exception $e) {
+                        Log::error("Failed to send referral email to {$referrer->email}: " . $e->getMessage());
+                    }
                 }
             }
         }
