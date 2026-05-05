@@ -106,8 +106,20 @@ class ChatToEarnController extends Controller
     {
         $user = $request->user();
         
+        // 1. Did the webhook catch it already?
+        $recentCredit = $user->transactions()
+            ->where('description', 'like', 'Credit Purchase (CRE_%')
+            ->where('created_at', '>=', now()->subMinutes(5))
+            ->first();
+
+        if ($recentCredit) {
+            return response()->json(['status' => 'success']);
+        }
+        
+        // 2. Poll fallback
         try {
-            $response = Http::withBasicAuth(config('services.payhero.username'), config('services.payhero.password'))->get('https://backend.payhero.co.ke/api/v2/transactions');
+            $response = Http::withBasicAuth(config('services.payhero.username'), config('services.payhero.password'))
+                            ->get('https://backend.payhero.co.ke/api/v2/transactions');
 
             if ($response->successful()) {
                 $transactions = $response->json()['data'] ??[];
@@ -121,18 +133,17 @@ class ChatToEarnController extends Controller
 
                     if (str_contains($txPhone, $phoneSuffix) && str_starts_with($txRef, 'CRE_')) {
                         if ($txStatus === 'SUCCESS') {
-                            // Check if this credit was already awarded
                             $exists = $user->transactions()->where('description', "Credit Purchase ($txRef)")->exists();
                             if (!$exists) {
-                                // Add to credits AND log the transaction
                                 $user->increment('credits', $txAmount);
+                                // FIX: Use type 'purchase' and wallet 'system' so it doesn't inflate the user's cash balance!
                                 $user->transactions()->create([
-                                    'amount' => $txAmount, 'type' => 'recharge', 'wallet' => 'main', 'status' => 'completed', 'description' => "Credit Purchase ($txRef)"
+                                    'amount' => $txAmount, 'type' => 'purchase', 'wallet' => 'system', 'status' => 'completed', 'description' => "Credit Purchase ($txRef)"
                                 ]);
                             }
                             return response()->json(['status' => 'success']);
                         }
-                        if ($txStatus === 'FAILED' || $txStatus === 'CANCELLED') return response()->json(['status' => 'failed']);
+                        if (in_array($txStatus, ['FAILED', 'CANCELLED'])) return response()->json(['status' => 'failed']);
                     }
                 }
             }
