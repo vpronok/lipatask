@@ -12,22 +12,20 @@ const BOT_REPLIES =["Oh really? That is so interesting!", "Wow, I never thought 
 export default function ChatToEarn({ stats, pay_per_message, cost_per_message, credits }) {
     const { flash, errors } = usePage().props;
     
-    // UI States
-    const [modalState, setModalState] = useState('hidden'); // hidden, matching, chatting, recharge
+    const [modalState, setModalState] = useState('hidden'); 
     const [partner, setPartner] = useState(null);
     const [messages, setMessages] = useState([]);
     const [inputText, setInputText] = useState('');
     const[userMessageCount, setUserMessageCount] = useState(0);
-    const [localCredits, setLocalCredits] = useState(credits); // Track credits down in real-time
+    const [localCredits, setLocalCredits] = useState(credits); 
     const [isBotTyping, setIsBotTyping] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const[isSubmitting, setIsSubmitting] = useState(false);
     
     // Recharge Form Logic
     const { data, setData, post, processing } = useForm({ amount: '' });
     const[isPolling, setIsPolling] = useState(false);
     const [pollMessage, setPollMessage] = useState('Waiting for PIN...');
 
-    // Timer Logic
     const CHAT_DURATION = 120; 
     const[timeLeft, setTimeLeft] = useState(CHAT_DURATION);
     const messagesEndRef = useRef(null);
@@ -49,20 +47,28 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
         return `${m}:${s}`;
     };
 
-    // Credit Purchase Polling Logic
+    // --- FIX: Credit Purchase Polling Logic ---
     useEffect(() => {
         let interval;
         if (flash?.success === 'Prompt Sent' && modalState === 'recharge') {
             setIsPolling(true);
+            setPollMessage('Waiting for PIN...');
+            
             interval = setInterval(() => {
                 axios.post(route('chat.credits.check')).then(res => {
                     if (res.data.status === 'success') {
                         clearInterval(interval);
                         setPollMessage('Credits Added Successfully!');
-                        setTimeout(() => { router.reload(); setModalState('hidden'); }, 1500);
+                        setTimeout(() => { 
+                            router.reload(); 
+                            setModalState('hidden'); 
+                            setIsPolling(false);
+                        }, 1500);
                     } else if (res.data.status === 'failed') {
-                        clearInterval(interval); setIsPolling(false);
-                        alert('M-Pesa payment failed.'); router.reload();
+                        clearInterval(interval); 
+                        setIsPolling(false);
+                        alert('M-Pesa payment failed or was cancelled.'); 
+                        router.reload();
                     }
                 }).catch(err => console.error(err));
             }, 4000);
@@ -95,7 +101,6 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
         setMessages((prev) =>[...prev, newMsg]);
         setInputText('');
         
-        // Deduct 2 KSH from local credit state for tracking during the active session
         setUserMessageCount((prev) => prev + 1);
         setLocalCredits((prev) => prev - cost_per_message);
 
@@ -117,9 +122,13 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
         });
     };
 
+    // --- FIX: Prevent State Reset on Submission ---
     const handleBuyCredits = (e) => {
         e.preventDefault();
-        post(route('chat.credits.pay'));
+        post(route('chat.credits.pay'), {
+            preserveState: true,
+            preserveScroll: true,
+        });
     };
 
     return (
@@ -133,7 +142,6 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                     </div>
                 )}
 
-                {/* --- Top Banner Section --- */}
                 <div className="bg-white dark:bg-[#11071c] rounded-2xl border border-gray-100 dark:border-purple-900/50 shadow-sm dark:shadow-xl overflow-hidden mb-10">
                     <div className="p-6 md:p-8 relative">
                         <div className="absolute top-0 right-0 w-64 h-64 bg-fuchsia-500/10 blur-[80px] rounded-full pointer-events-none"></div>
@@ -141,7 +149,6 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                         <div className="flex justify-between items-start mb-6">
                             <div className="w-14 h-14 rounded-full border border-orange-500/50 flex items-center justify-center text-3xl shadow-[0_0_20px_rgba(249,115,22,0.3)] bg-[#1a0e29]">🌍</div>
                             
-                            {/* LIVE CREDITS BADGE */}
                             <div className="bg-[#1a0c29] border border-gray-800 rounded-xl px-4 py-2 text-center flex items-center gap-3">
                                 <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">My Credits:</span>
                                 <span className="text-xl font-black text-white">{credits}</span>
@@ -171,7 +178,6 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                     </div>
                 </div>
 
-                {/* --- Available Sessions Section --- */}
                 <div className="bg-white dark:bg-[#11071c] border border-gray-100 dark:border-purple-900/40 rounded-2xl p-5 md:p-6 shadow-sm dark:shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-fuchsia-500/50 transition-colors relative overflow-hidden">
                     <div className="flex items-center gap-4 md:gap-6 z-10">
                         <div className="flex items-center gap-3">
@@ -204,37 +210,28 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
             {modalState === 'recharge' && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/90 dark:bg-black/80 backdrop-blur-sm p-4">
                     <div className="bg-white dark:bg-[#11071c] w-full max-w-sm rounded-2xl border border-gray-200 dark:border-purple-500/30 p-6 shadow-2xl relative">
-                        <button onClick={() => setModalState('hidden')} className="absolute top-4 right-4 text-gray-500 hover:text-white bg-gray-100 dark:bg-[#1a0e29] w-8 h-8 rounded-full flex items-center justify-center transition z-20">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
+                        {!isPolling && (
+                            <button onClick={() => setModalState('hidden')} className="absolute top-4 right-4 text-gray-500 hover:text-white bg-[#1a0e29] w-8 h-8 rounded-full flex items-center justify-center transition z-20">✖️</button>
+                        )}
                         
                         <div className="text-center mb-6 mt-2">
                             <div className="w-14 h-14 bg-amber-500/20 text-amber-500 rounded-full flex items-center justify-center mx-auto text-2xl mb-3 shadow-[0_0_15px_rgba(245,158,11,0.2)]">💳</div>
-                            <h2 className="font-black text-xl text-gray-900 dark:text-white">Buy Chat Credits</h2>
-                            <p className="text-xs text-gray-500 mt-1">Min Ksh 10 • Max Ksh 49</p>
+                            <h2 className="font-black text-xl text-white">Buy Chat Credits</h2>
+                            <p className="text-xs text-gray-400 mt-1">Min Ksh 10 • Max Ksh 49</p>
                         </div>
 
                         {errors?.pay && <div className="bg-red-500/10 text-red-500 text-xs p-3 rounded mb-4 text-center font-bold">{errors.pay}</div>}
 
                         <form onSubmit={handleBuyCredits}>
                             <div className="mb-6">
-                                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Amount (Ksh)</label>
-                                <input 
-                                    type="number" 
-                                    min="10" 
-                                    max="49" 
-                                    value={data.amount} 
-                                    onChange={e => setData('amount', e.target.value)} 
-                                    required 
-                                    disabled={isPolling} 
-                                    placeholder="e.g. 20" 
-                                    className="w-full bg-gray-50 dark:bg-[#1a0c29] border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white rounded-xl px-4 py-3 focus:ring-1 focus:ring-fuchsia-500" 
-                                />
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Amount (Ksh)</label>
+                                <input type="number" min="10" max="49" value={data.amount} onChange={e => setData('amount', e.target.value)} required disabled={isPolling || processing} placeholder="e.g. 20" className="w-full bg-[#1a0c29] border border-gray-800 rounded-xl px-4 py-3 text-white focus:ring-1 focus:ring-fuchsia-500" />
                             </div>
 
                             {isPolling ? (
-                                <div className="w-full bg-gray-100 dark:bg-[#1a0e29] border border-amber-500/50 py-3 rounded-xl flex justify-center items-center gap-3">
-                                    <span className="text-amber-600 dark:text-amber-500 animate-pulse font-bold text-sm">{pollMessage}</span>
+                                <div className="w-full bg-[#1a0e29] border border-amber-500/50 py-3 rounded-xl flex justify-center items-center gap-3">
+                                    <svg className="animate-spin h-5 w-5 text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                    <span className="text-amber-500 font-bold text-sm">{pollMessage}</span>
                                 </div>
                             ) : (
                                 <button type="submit" disabled={processing} className={`w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition shadow-[0_0_15px_rgba(16,185,129,0.3)] ${processing && 'opacity-50 cursor-wait'}`}>
