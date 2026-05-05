@@ -33,7 +33,7 @@ export default function Dashboard({ auth, wallets, referral_stats }) {
 
     return (
         <LipataskLayout>
-            <Head title="Dashboard | Lipatask" />
+            <Head title="Dashboard | Chatwazungu" />
 
             {/* --- WELCOME TOAST NOTIFICATION --- */}
             <div 
@@ -125,6 +125,7 @@ export default function Dashboard({ auth, wallets, referral_stats }) {
                             <p className="text-[10px] text-purple-100 dark:text-purple-200 uppercase font-black tracking-wider mb-0.5">TEAM EARNINGS</p>
                             <h2 className="text-2xl font-black text-white">Ksh {wallets.team}</h2>
                         </div>
+                        
                         {/* Main */}
                         <div className="bg-blue-600 dark:bg-gradient-to-r dark:from-[#173887] dark:to-[#2552ba] p-5 rounded-2xl relative overflow-hidden shadow-lg border border-blue-500/20 dark:border-white/5">
                             <div className="flex justify-between items-start mb-3">
@@ -134,6 +135,17 @@ export default function Dashboard({ auth, wallets, referral_stats }) {
                             <p className="text-[10px] text-blue-100 dark:text-blue-200 uppercase font-black tracking-wider mb-0.5">MAIN WALLET</p>
                             <h2 className="text-2xl font-black text-white">Ksh {wallets.main}</h2>
                         </div>
+                        
+                        {/* Task Wallet (Replaces Store) */}
+                        <div className="bg-emerald-600 dark:bg-gradient-to-r dark:from-[#175e5b] dark:to-[#218580] p-5 rounded-2xl relative overflow-hidden shadow-lg border border-emerald-500/20 dark:border-white/5">
+                            <div className="flex justify-between items-start mb-3">
+                                <div className="bg-white/20 dark:bg-black/20 p-2 rounded-lg backdrop-blur-sm">🌍</div>
+                                <span className="text-[9px] bg-white/20 dark:bg-black/20 px-3 py-1 rounded-full uppercase tracking-wider font-bold text-white">TASK</span>
+                            </div>
+                            <p className="text-[10px] text-emerald-100 dark:text-teal-200 uppercase font-black tracking-wider mb-0.5">TASK WALLET</p>
+                            <h2 className="text-2xl font-black text-white">Ksh {wallets.task}</h2>
+                        </div>
+
                         {/* Withdrawn */}
                         <div className="bg-emerald-600 dark:bg-gradient-to-r dark:from-[#1a6642] dark:to-[#248f5a] p-5 rounded-2xl relative overflow-hidden shadow-lg border border-emerald-500/20 dark:border-white/5">
                             <div className="flex justify-between items-start mb-3">
@@ -143,6 +155,7 @@ export default function Dashboard({ auth, wallets, referral_stats }) {
                             <p className="text-[10px] text-emerald-100 dark:text-emerald-200 uppercase font-black tracking-wider mb-0.5">TOTAL WITHDRAWN</p>
                             <h2 className="text-2xl font-black text-white">Ksh {wallets.withdrawn}</h2>
                         </div>
+
                         {/* Total */}
                         <div className="bg-indigo-600 dark:bg-gradient-to-r dark:from-[#4d169c] dark:to-[#6a25c7] p-5 rounded-2xl relative overflow-hidden shadow-lg border border-indigo-500/20 dark:border-white/5">
                             <div className="flex justify-between items-start mb-3">
@@ -151,6 +164,36 @@ export default function Dashboard({ auth, wallets, referral_stats }) {
                             </div>
                             <p className="text-[10px] text-indigo-100 dark:text-purple-200 uppercase font-black tracking-wider mb-0.5">TOTAL EARNED</p>
                             <h2 className="text-2xl font-black text-white">Ksh {wallets.total}</h2>
+                        </div>
+
+                        {/* Today */}
+                        <div className="bg-amber-600 dark:bg-gradient-to-r dark:from-[#a16207] dark:to-[#ca8a04] p-5 rounded-2xl relative overflow-hidden shadow-lg border border-amber-500/20 dark:border-white/5">
+                            <div className="flex justify-between items-start mb-3">
+                                <div className="bg-white/20 dark:bg-black/20 p-2 rounded-lg backdrop-blur-sm">☀️</div>
+                                <span className="text-[9px] bg-white/20 dark:bg-black/20 px-3 py-1 rounded-full uppercase tracking-wider font-bold text-white">TODAY</span>
+                            </div>
+                            <p className="text-[10px] text-amber-100 dark:text-yellow-200 uppercase font-black tracking-wider mb-0.5">TODAY'S EARNINGS</p>
+                            <h2 className="text-2xl font-black text-white">Ksh {wallets.today}</h2>
+                        </div>
+
+                        {/* Network */}
+                        <div className="bg-rose-600 dark:bg-gradient-to-r dark:from-[#9e1c31] dark:to-[#cf2540] p-5 rounded-2xl relative overflow-hidden shadow-lg border border-rose-500/20 dark:border-white/5">
+                            <div className="flex justify-between items-start mb-3">
+                                <div className="bg-white/20 dark:bg-black/20 p-2 rounded-lg backdrop-blur-sm">🔥</div>
+                                <span className="text-[9px] bg-white/20 dark:bg-black/20 px-3 py-1 rounded-full uppercase tracking-wider font-bold text-white">NETWORK</span>
+                            </div>
+                            <p className="text-[10px] text-rose-100 dark:text-rose-200 uppercase font-black tracking-wider mb-0.5">ACTIVE MEMBERS</p>
+                            <h2 className="text-2xl font-black text-white">{referral_stats.activated}</h2>
+                        </div>
+
+                        {/* Commissions */}
+                        <div className="bg-violet-600 dark:bg-gradient-to-r dark:from-[#3e1378] dark:to-[#5a1c9c] p-5 rounded-2xl relative overflow-hidden shadow-lg border border-violet-500/20 dark:border-white/5">
+                            <div className="flex justify-between items-start mb-3">
+                                <div className="bg-white/20 dark:bg-black/20 p-2 rounded-lg backdrop-blur-sm">💸</div>
+                                <span className="text-[9px] bg-white/20 dark:bg-black/20 px-3 py-1 rounded-full uppercase tracking-wider font-bold text-white">COMMS</span>
+                            </div>
+                            <p className="text-[10px] text-violet-100 dark:text-violet-200 uppercase font-black tracking-wider mb-0.5">COMMISSIONS</p>
+                            <h2 className="text-2xl font-black text-white">Ksh {wallets.commissions}</h2>
                         </div>
                     </div>
 
