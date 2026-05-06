@@ -137,4 +137,29 @@ class AdminController extends Controller
         }
         return back();
     }
+    public function storeUser(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'username' => 'required|string|max:255|unique:users',
+            'phone' => 'required|string|unique:users',
+            'email' => 'required|email|unique:users',
+            'password' => 'required|string|min:6',
+            'role' => 'required|in:admin,user',
+        ]);
+
+        User::create([
+            'name' => $request->name,
+            'username' => $request->username,
+            'phone' => $request->phone,
+            'email' => $request->email,
+            'password' => \Illuminate\Support\Facades\Hash::make($request->password),
+            'role' => $request->role,
+            'is_active' => filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN),
+            // Auto-generate their referral code
+            'referral_code' => strtoupper(substr(uniqid(), -8)), 
+        ]);
+
+        return back();
+    }
 }

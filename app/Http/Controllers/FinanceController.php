@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\Transaction;
+use App\Models\Setting;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 
@@ -27,15 +28,19 @@ class FinanceController extends Controller
         $taskWithdrawals = $user->transactions()->where('wallet', 'task')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
         $taskBalance = $taskEarnings - $taskWithdrawals;
 
-        $taskWithdrawalsEnabled = \App\Models\Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
-        $withdrawalFee = \App\Models\Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20;
+        $taskWithdrawalsEnabled = Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
+        $withdrawalFee = Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20;
+        
+        // Pass the JSON array of progressive tiers to React
+        $withdrawalFeeTiers = Setting::where('key', 'withdrawal_fee_tiers')->first()?->value;
 
         return Inertia::render('Finance/Withdraw',[
             'balances' =>['team' => max(0, $teamBalance), 'main' => max(0, $mainBalance), 'task' => max(0, $taskBalance)],
             // Send unique dynamic minimums to the React UI
             'min_withdrawals' =>['team' => 170, 'main' => 155, 'task' => 155], 
             'task_enabled' => $taskWithdrawalsEnabled,
-            'withdrawal_fee' => (float) $withdrawalFee
+            'withdrawal_fee' => (float) $withdrawalFee,
+            'withdrawal_fee_tiers' => $withdrawalFeeTiers
         ]);
     }
 
@@ -46,7 +51,7 @@ class FinanceController extends Controller
         // Setup array for dynamic minimum validation
         $minimums =['team' => 170, 'main' => 155, 'task' => 155];
         $wallet = $request->wallet;
-        $amount = $request->amount;
+        $amount = (float) $request->amount;
 
         // Ensure amount meets the required minimum for the selected wallet
         if ($amount < $minimums[$wallet]) {
@@ -54,12 +59,24 @@ class FinanceController extends Controller
         }
         
         if ($wallet === 'task') {
-            $enabled = \App\Models\Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
+            $enabled = Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
             if (!$enabled) return back()->withErrors(['amount' => 'Task wallet withdrawals are currently disabled by the admin.']);
         }
         
         $user = $request->user();
-        $fee = \App\Models\Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20;
+        
+        // --- PROGRESSIVE FEE LOGIC ---
+        $tiersJson = Setting::where('key', 'withdrawal_fee_tiers')->first()?->value;
+        $feeTiers = $tiersJson ? json_decode($tiersJson, true) :[];
+        $fee = (float) (Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20); // Default fallback
+
+        foreach($feeTiers as $tier) {
+            if ($amount >= (float)$tier['min'] && $amount <= (float)$tier['max']) {
+                $fee = (float)$tier['fee'];
+                break; // Stop looking once we find the correct tier
+            }
+        }
+        // -----------------------------
 
         if ($amount <= $fee) {
             return back()->withErrors(['amount' => "Amount must be greater than the Ksh {$fee} withdrawal fee."]);
@@ -85,6 +102,7 @@ class FinanceController extends Controller
 
         return back()->with('success', 'Request submitted successfully! Net payout of Ksh ' . $netPayout . ' is pending.');
     }
+
     // --- RECHARGE LOGIC ---
     public function recharge(Request $request)
     {

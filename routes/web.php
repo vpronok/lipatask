@@ -79,6 +79,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('/settings/update', [AdminController::class, 'updateSettings'])->name('settings.update');
     
     // Users Management
+    Route::post('/users/store', [AdminController::class, 'storeUser'])->name('users.store');
     Route::post('/users/{id}/update',[AdminController::class, 'updateUser'])->name('users.update');
     Route::delete('/users/{id}/delete',[AdminController::class, 'deleteUser'])->name('users.delete');
 });

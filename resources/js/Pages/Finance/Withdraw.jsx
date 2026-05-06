@@ -2,12 +2,12 @@ import LipataskLayout from '@/Layouts/LipataskLayout';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import { useState, useEffect } from 'react';
 
-export default function Withdraw({ balances, min_withdrawals, task_enabled, withdrawal_fee }) {
+export default function Withdraw({ balances, min_withdrawals, task_enabled, withdrawal_fee, withdrawal_fee_tiers }) {
     const { auth, flash } = usePage().props;
     const user = auth.user;
 
     // Local state for UI selection
-    const[selectedWallet, setSelectedWallet] = useState('team'); 
+    const [selectedWallet, setSelectedWallet] = useState('team'); 
 
     // Inertia Form Setup
     const { data, setData, post, processing, errors, reset } = useForm({
@@ -33,11 +33,30 @@ export default function Withdraw({ balances, min_withdrawals, task_enabled, with
         });
     };
 
-    // Calculate live math
+    // --- PROGRESSIVE LIVE MATH ---
     const currentMin = min_withdrawals[selectedWallet];
-    const netPayout = data.amount && data.amount > withdrawal_fee 
-        ? (data.amount - withdrawal_fee).toFixed(2) 
+    
+    // Parse the tiers safely
+    const feeTiers = withdrawal_fee_tiers ? JSON.parse(withdrawal_fee_tiers) :[];
+    
+    // Calculate the exact fee based on the user's input amount
+    let calculatedFee = parseFloat(withdrawal_fee); // Start with default
+    const typedAmount = parseFloat(data.amount) || 0;
+
+    if (typedAmount > 0) {
+        for (const tier of feeTiers) {
+            if (typedAmount >= parseFloat(tier.min) && typedAmount <= parseFloat(tier.max)) {
+                calculatedFee = parseFloat(tier.fee);
+                break;
+            }
+        }
+    }
+
+    // Calculate final payout
+    const netPayout = typedAmount > calculatedFee 
+        ? (typedAmount - calculatedFee).toFixed(2) 
         : '0.00';
+    // -----------------------------
 
     return (
         <LipataskLayout>
@@ -174,7 +193,7 @@ export default function Withdraw({ balances, min_withdrawals, task_enabled, with
                             {data.amount && (
                                 <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-lg p-3 md:p-4 flex flex-col md:flex-row md:justify-between md:items-center text-sm mb-2 gap-2">
                                     <div>
-                                        <p className="text-gray-600 dark:text-gray-400 text-xs">Platform Fee: <span className="text-rose-500 font-bold">-Ksh {withdrawal_fee}</span></p>
+                                        <p className="text-gray-600 dark:text-gray-400 text-xs">Platform Fee: <span className="text-rose-500 font-bold">-Ksh {calculatedFee}</span></p>
                                         <p className="text-emerald-700 dark:text-emerald-400 font-bold mt-1">You will receive via M-Pesa:</p>
                                     </div>
                                     <span className="text-2xl font-black text-emerald-600 dark:text-emerald-500">Ksh {netPayout}</span>
