@@ -1,10 +1,17 @@
 import { Head, router, useForm, Link } from '@inertiajs/react';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
-export default function AdminDashboard({ analytics, withdrawals, withdrawal_history, users, settings }) {
+export default function AdminDashboard({ analytics, withdrawals, withdrawal_history, users, settings, filters }) {
     
     // --- UI NAVIGATION STATE ---
-    const[activeTab, setActiveTab] = useState('analytics'); // analytics, users, pending, processed, config
+    // Keep the user on the tab they were on during search
+    const[activeTab, setActiveTab] = useState(filters?.tab || 'analytics'); 
+
+    // Switch Tabs while maintaining the URL for browser history
+    const handleTabChange = (tab) => {
+        setActiveTab(tab);
+        window.history.replaceState({}, '', `?tab=${tab}`);
+    };
 
     // --- SETTINGS FORM ---
     const { data: configData, setData: setConfigData, post: postConfig, processing: configProcessing, recentlySuccessful } = useForm({
@@ -21,25 +28,33 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
         if (confirm(`Are you sure you want to ${action} this withdrawal?`)) router.post(route(`admin.withdrawals.${action}`, id), {}, { preserveScroll: true });
     };
 
-    // --- USER SEARCH & FILTER LOGIC ---
-    const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all'); // all, active, inactive
-    const [selectedUser, setSelectedUser] = useState(null); // For the View Modal
-    
-    // Derived state: Automatically filters users blazingly fast in the browser
-    const filteredUsers = users.filter(u => {
-        const matchesSearch = u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                              u.username.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                              u.phone.includes(searchQuery);
-        
-        const matchesStatus = statusFilter === 'all' ? true : (statusFilter === 'active' ? u.is_active : !u.is_active);
-        
-        return matchesSearch && matchesStatus;
-    });
+    // --- USER SEARCH & FILTER LOGIC (Server Side) ---
+    const [searchQuery, setSearchQuery] = useState(filters?.search || '');
+    const [statusFilter, setStatusFilter] = useState(filters?.status || 'all');
+    const [selectedUser, setSelectedUser] = useState(null); 
+    const isFirstRender = useRef(true);
+
+    // Debounce: Wait 500ms after user stops typing before asking the server to search 500k records
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+
+        const delayDebounceFn = setTimeout(() => {
+            router.get(route('admin.dashboard'), {
+                tab: activeTab,
+                search: searchQuery,
+                status: statusFilter
+            }, { preserveState: true, preserveScroll: true, replace: true });
+        }, 500);
+
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchQuery, statusFilter]);
 
     // --- USER EDIT LOGIC ---
     const [editingUser, setEditingUser] = useState(null);
-    const [editData, setEditData] = useState({});
+    const[editData, setEditData] = useState({});
 
     const openEditMode = (u) => {
         setEditingUser(u.id);
@@ -71,24 +86,24 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                 <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-2">
                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-2 mb-4">Command Center</p>
                     
-                    <button onClick={() => setActiveTab('analytics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
+                    <button onClick={() => handleTabChange('analytics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
                         <span>📊</span> Platform Analytics
                     </button>
                     
-                    <button onClick={() => setActiveTab('users')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'users' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
+                    <button onClick={() => handleTabChange('users')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'users' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
                         <span>👥</span> Platform Users
                     </button>
 
-                    <button onClick={() => setActiveTab('pending')} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'pending' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
+                    <button onClick={() => handleTabChange('pending')} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'pending' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
                         <div className="flex items-center gap-3"><span>💸</span> Pending Payouts</div>
                         {withdrawals.length > 0 && <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">{withdrawals.length}</span>}
                     </button>
 
-                    <button onClick={() => setActiveTab('processed')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'processed' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
+                    <button onClick={() => handleTabChange('processed')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'processed' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
                         <span>📜</span> Processed History
                     </button>
 
-                    <button onClick={() => setActiveTab('config')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'config' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
+                    <button onClick={() => handleTabChange('config')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'config' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
                         <span>⚙️</span> Master Configuration
                     </button>
                 </nav>
@@ -105,13 +120,12 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                 {/* Subtle Background Red Glow */}
                 <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-red-600/5 blur-[120px] rounded-full pointer-events-none"></div>
 
-                {/* --- TAB 1: ANALYTICS (Home) --- */}
+                {/* --- TAB 1: ANALYTICS --- */}
                 {activeTab === 'analytics' && (
                     <div className="animate-[fadeIn_0.3s_ease-out]">
                         <h2 className="text-3xl font-black text-white mb-2">Platform <span className="text-red-500">Analytics</span></h2>
                         <p className="text-gray-400 text-sm mb-8">Daily overview and historical revenue metrics.</p>
 
-                        {/* Daily Stats */}
                         <h3 className="text-xs font-bold text-red-500 tracking-widest uppercase mb-4">Daily Performance (Today)</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
                             <div className="bg-[#11071c] p-6 rounded-2xl border border-red-900/30 shadow-lg">
@@ -126,7 +140,6 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                             </div>
                         </div>
 
-                        {/* Historical Stats */}
                         <h3 className="text-xs font-bold text-gray-500 tracking-widest uppercase mb-4">Historical Metrics</h3>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                             <div className="bg-[#150a21] p-5 rounded-2xl border border-gray-800">
@@ -142,23 +155,20 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                             <div className="bg-[#150a21] p-5 rounded-2xl border border-gray-800">
                                 <p className="text-gray-500 text-[10px] uppercase font-bold mb-1">Pending Payouts</p>
                                 <h3 className="text-2xl font-black text-amber-500">Ksh {analytics.pending_payouts}</h3>
-                                <p className="text-[10px] text-gray-500 mt-1">Awaiting admin approval</p>
                             </div>
                             <div className="bg-[#150a21] p-5 rounded-2xl border border-gray-800">
                                 <p className="text-gray-500 text-[10px] uppercase font-bold mb-1">Total Paid Out</p>
                                 <h3 className="text-2xl font-black text-purple-400">Ksh {analytics.total_paid}</h3>
-                                <p className="text-[10px] text-gray-500 mt-1">Cleared withdrawals</p>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* --- TAB 2: PLATFORM USERS (Search & Filter) --- */}
+                {/* --- TAB 2: PLATFORM USERS (Server-Side Paginated) --- */}
                 {activeTab === 'users' && (
                     <div className="animate-[fadeIn_0.3s_ease-out]">
                         <h2 className="text-3xl font-black text-white mb-6">Platform <span className="text-blue-500">Users</span></h2>
                         
-                        {/* Search & Filter Toolbar */}
                         <div className="flex flex-col md:flex-row gap-4 mb-6">
                             <input 
                                 type="text" 
@@ -178,13 +188,12 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                             </select>
                         </div>
 
-                        {/* Users Table */}
                         <div className="bg-[#11071c] rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
                             <div className="px-6 py-4 border-b border-gray-800 bg-[#150a21] flex justify-between items-center">
                                 <h3 className="font-bold text-sm text-gray-300">👥 Users Directory</h3>
-                                <span className="text-xs text-gray-500">{filteredUsers.length} records found</span>
+                                <span className="text-xs text-gray-500">Page {users.current_page} of {users.last_page}</span>
                             </div>
-                            <div className="overflow-x-auto pb-10">
+                            <div className="overflow-x-auto pb-4">
                                 <table className="w-full text-sm text-left text-gray-300">
                                     <thead className="text-[10px] text-gray-500 uppercase bg-[#0d0415]">
                                         <tr>
@@ -195,7 +204,8 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-800">
-                                        {filteredUsers.map((u) => (
+                                        {/* Notice we map over users.data now because of Pagination! */}
+                                        {users.data.map((u) => (
                                             <tr key={u.id} className="hover:bg-white/5 transition-colors">
                                                 {editingUser !== u.id ? (
                                                     <>
@@ -210,7 +220,7 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                                                             {u.role === 'admin' && <div className="text-[9px] text-red-500 font-bold uppercase">ADMIN</div>}
                                                         </td>
                                                         <td className="px-6 py-4 font-black text-white">Ksh {u.balance}</td>
-                                                        <td className="px-6 py-4 text-right space-x-2">
+                                                        <td className="px-6 py-4 text-right space-x-2 flex justify-end">
                                                             <button onClick={() => setSelectedUser(u)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-xs font-bold transition">View</button>
                                                             <button onClick={() => openEditMode(u)} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-xs font-bold transition">Edit</button>
                                                             <button onClick={() => handleDeleteUser(u.id)} className="bg-red-900/50 hover:bg-red-600 text-red-400 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition">Del</button>
@@ -218,7 +228,6 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                                                     </>
                                                 ) : (
                                                     <td colSpan="4" className="px-6 py-4 bg-[#1a0e29]">
-                                                        {/* EDIT FORM */}
                                                         <form onSubmit={(e) => submitUserEdit(e, u.id)} className="flex flex-wrap items-center gap-3 w-full">
                                                             <input type="text" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white" placeholder="Name" required />
                                                             <input type="text" value={editData.phone} onChange={e => setEditData({...editData, phone: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white" placeholder="Phone" required />
@@ -240,6 +249,24 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+
+                            {/* Pagination Links - Beautifully Appended */}
+                            <div className="p-4 border-t border-gray-800 flex justify-center gap-1">
+                                {users.links.map((link, k) => (
+                                    <Link
+                                        key={k}
+                                        href={link.url ? `${link.url}&tab=users` : '#'}
+                                        preserveState
+                                        preserveScroll
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                                            link.active 
+                                                ? 'bg-blue-600 text-white shadow-[0_0_10px_rgba(37,99,235,0.4)]' 
+                                                : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                                        } ${!link.url && 'opacity-30 cursor-not-allowed'}`}
+                                        dangerouslySetInnerHTML={{ __html: link.label }}
+                                    />
+                                ))}
                             </div>
                         </div>
                     </div>
@@ -321,7 +348,7 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                                                     </td>
                                                     <td className="px-6 py-3">
                                                         <span className="font-black text-white text-xs">Ksh {req.amount}</span>
-                                                        <span className="text-[10px] text-gray-500 ml-2 uppercase">{req.wallet}</span>
+                                                        <span className="text-[10px] text-purple-500 ml-2 uppercase font-bold">{req.wallet}</span>
                                                     </td>
                                                     <td className="px-6 py-3 text-[10px] text-gray-500">{new Date(req.created_at).toLocaleDateString()}</td>
                                                     <td className="px-6 py-3 text-right">
@@ -380,7 +407,6 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                     <div className="bg-[#11071c] w-full max-w-2xl max-h-[90vh] rounded-2xl border border-gray-800 shadow-2xl flex flex-col overflow-hidden animate-[fadeIn_0.2s_ease-out]">
                         
-                        {/* Modal Header */}
                         <div className="p-6 border-b border-gray-800 bg-[#150a21] flex justify-between items-start relative">
                             <div>
                                 <h2 className="text-2xl font-black text-white">{selectedUser.name}</h2>
@@ -389,9 +415,7 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                             <button onClick={() => setSelectedUser(null)} className="w-8 h-8 bg-gray-800 rounded-full flex items-center justify-center text-gray-400 hover:text-white transition">✖</button>
                         </div>
 
-                        {/* Modal Body (Scrollable) */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                            
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div className="bg-[#090210] p-4 rounded-xl border border-gray-800 text-center"><p className="text-[9px] text-gray-500 uppercase tracking-widest font-bold mb-1">Status</p><span className={`text-xs font-bold px-2 py-0.5 rounded uppercase ${selectedUser.is_active ? 'bg-emerald-900/30 text-emerald-400' : 'bg-red-900/30 text-red-400'}`}>{selectedUser.is_active ? 'Active' : 'Unpaid'}</span></div>
                                 <div className="bg-[#090210] p-4 rounded-xl border border-gray-800 text-center"><p className="text-[9px] text-gray-500 uppercase tracking-widest font-bold mb-1">Income</p><h4 className="text-lg font-black text-emerald-400">Ksh {selectedUser.total_income}</h4></div>
@@ -427,9 +451,11 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                 </div>
             )}
             
-            {/* Tailwind utility classes for basic animations */}
             <style jsx global>{`
                 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(220, 38, 38, 0.4); border-radius: 20px; }
             `}</style>
         </div>
     );

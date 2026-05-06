@@ -11,7 +11,7 @@ use Carbon\Carbon;
 
 class AdminController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $today = Carbon::today();
         
@@ -26,19 +26,22 @@ class AdminController extends Controller
         $totalActiveUsers = User::where('is_active', true)->count();
         $historicalRevenue = $totalActiveUsers * $activationFee;
         $totalUsers = User::count();
+        
         $totalPendingWithdrawals = Transaction::where('type', 'withdrawal')->where('status', 'pending')->sum('amount');
         $totalPaidOut = Transaction::where('type', 'withdrawal')->where('status', 'completed')->sum('amount');
 
-        // Withdrawals
+        // Withdrawals (Kept limits to protect memory)
         $pendingWithdrawals = Transaction::with('user:id,name,email,username,phone')
             ->where('type', 'withdrawal')->where('status', 'pending')->latest()->get();
 
         $historyWithdrawals = Transaction::with('user:id,name,email,username,phone')
             ->where('type', 'withdrawal')->whereIn('status',['completed', 'rejected'])->latest()->take(100)->get();
 
-        // --- THE FIX: ELIMINATE THE N+1 QUERY BUG ---
-        // Using `withSum` allows MySQL to calculate everything in memory instantly
-        $users = User::with(['referrals:id,name,username,phone,is_active,created_at', 'referrer:id,name'])
+        // --- ENTERPRISE SCALING: Server-Side Search & Pagination ---
+        $search = $request->query('search');
+        $status = $request->query('status');
+
+        $usersQuery = User::with(['referrals:id,name,username,phone,is_active,created_at', 'referrer:id,name'])
             ->withCount('referrals')
             ->withSum(['transactions as main_earnings' => function ($query) {
                 $query->where('wallet', 'main')->whereIn('type',['earning', 'commission', 'bonus', 'recharge']);
@@ -49,28 +52,42 @@ class AdminController extends Controller
             ->withSum(['transactions as total_income' => function ($query) {
                 $query->whereIn('type',['earning', 'commission', 'bonus']);
             }], 'amount')
-            ->orderBy('id', 'desc')
-            ->get()
-            ->map(function ($user) {
-                // The math is now done entirely in memory using the eagerly loaded database sums!
-                $mainBalance = ($user->main_earnings ?? 0) - ($user->main_withdrawals ?? 0);
+            ->orderBy('id', 'desc');
 
-                return[
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'username' => $user->username,
-                    'phone' => $user->phone,
-                    'email' => $user->email,
-                    'is_active' => $user->is_active,
-                    'role' => $user->role,
-                    'balance' => number_format(max(0, $mainBalance), 2, '.', ''),
-                    'total_income' => number_format($user->total_income ?? 0, 2, '.', ''),
-                    'referrals_count' => $user->referrals_count,
-                    'upline' => $user->referrer ? $user->referrer->name : 'Admin',
-                    'team' => $user->referrals,
-                    'created_at' => $user->created_at,
-                ];
+        // 1. Apply Search Filter via MySQL
+        if (!empty($search)) {
+            $usersQuery->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('username', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
             });
+        }
+
+        // 2. Apply Status Filter via MySQL
+        if (!empty($status) && $status !== 'all') {
+            $isActive = $status === 'active' ? true : false;
+            $usersQuery->where('is_active', $isActive);
+        }
+
+        // 3. Paginate exactly 15 records at a time to prevent RAM crashing
+        $users = $usersQuery->paginate(15)->appends($request->query())->through(function ($user) {
+            $mainBalance = ($user->main_earnings ?? 0) - ($user->main_withdrawals ?? 0);
+            return[
+                'id' => $user->id,
+                'name' => $user->name,
+                'username' => $user->username,
+                'phone' => $user->phone,
+                'email' => $user->email,
+                'is_active' => $user->is_active,
+                'role' => $user->role,
+                'balance' => number_format(max(0, $mainBalance), 2, '.', ''),
+                'total_income' => number_format($user->total_income ?? 0, 2, '.', ''),
+                'referrals_count' => $user->referrals_count,
+                'upline' => $user->referrer ? $user->referrer->name : 'Admin',
+                'team' => $user->referrals,
+                'created_at' => $user->created_at,
+            ];
+        });
 
         return Inertia::render('Admin/Dashboard',[
             'analytics' =>[
@@ -84,8 +101,9 @@ class AdminController extends Controller
             ],
             'withdrawals' => $pendingWithdrawals,
             'withdrawal_history' => $historyWithdrawals,
-            'users' => $users,
+            'users' => $users, // Now contains pagination data (.data and .links)
             'settings' => $settings,
+            'filters' => $request->only(['search', 'status', 'tab']), // Pass back to frontend to keep state alive
         ]);
     }
 
