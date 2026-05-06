@@ -15,38 +15,45 @@ class AdminController extends Controller
     {
         $today = Carbon::today();
         
-        // 1. Fetch Master Settings to calculate Revenue
         $settings = Setting::pluck('value', 'key')->toArray();
         $activationFee = (float) ($settings['activation_fee'] ?? 0);
 
-        // 2. Platform Analytics (Daily & Historical)
+        // Daily Analytics
         $dailySignups = User::whereDate('updated_at', $today)->where('is_active', true)->count();
         $dailyRevenue = $dailySignups * $activationFee;
 
+        // Historical Analytics
         $totalActiveUsers = User::where('is_active', true)->count();
         $historicalRevenue = $totalActiveUsers * $activationFee;
-
         $totalUsers = User::count();
         $totalPendingWithdrawals = Transaction::where('type', 'withdrawal')->where('status', 'pending')->sum('amount');
         $totalPaidOut = Transaction::where('type', 'withdrawal')->where('status', 'completed')->sum('amount');
 
-        // 3. Withdrawals
+        // Withdrawals
         $pendingWithdrawals = Transaction::with('user:id,name,email,username,phone')
             ->where('type', 'withdrawal')->where('status', 'pending')->latest()->get();
 
         $historyWithdrawals = Transaction::with('user:id,name,email,username,phone')
-            ->where('type', 'withdrawal')->whereIn('status', ['completed', 'rejected'])->latest()->take(100)->get();
+            ->where('type', 'withdrawal')->whereIn('status',['completed', 'rejected'])->latest()->take(100)->get();
 
-        // 4. Advanced User Data (Includes Total Income and Team List)
+        // --- THE FIX: ELIMINATE THE N+1 QUERY BUG ---
+        // Using `withSum` allows MySQL to calculate everything in memory instantly
         $users = User::with(['referrals:id,name,username,phone,is_active,created_at', 'referrer:id,name'])
+            ->withCount('referrals')
+            ->withSum(['transactions as main_earnings' => function ($query) {
+                $query->where('wallet', 'main')->whereIn('type',['earning', 'commission', 'bonus', 'recharge']);
+            }], 'amount')
+            ->withSum(['transactions as main_withdrawals' => function ($query) {
+                $query->where('wallet', 'main')->where('type', 'withdrawal')->whereIn('status', ['completed', 'pending']);
+            }], 'amount')
+            ->withSum(['transactions as total_income' => function ($query) {
+                $query->whereIn('type',['earning', 'commission', 'bonus']);
+            }], 'amount')
             ->orderBy('id', 'desc')
             ->get()
             ->map(function ($user) {
-                // Calculate Balances
-                $mainBalance = $user->transactions()->where('wallet', 'main')->whereIn('type',['earning', 'commission', 'bonus'])->sum('amount') 
-                             - $user->transactions()->where('wallet', 'main')->where('type', 'withdrawal')->sum('amount');
-                             
-                $totalIncome = $user->transactions()->whereIn('type', ['earning', 'commission', 'bonus'])->sum('amount');
+                // The math is now done entirely in memory using the eagerly loaded database sums!
+                $mainBalance = ($user->main_earnings ?? 0) - ($user->main_withdrawals ?? 0);
 
                 return[
                     'id' => $user->id,
@@ -56,11 +63,11 @@ class AdminController extends Controller
                     'email' => $user->email,
                     'is_active' => $user->is_active,
                     'role' => $user->role,
-                    'balance' => number_format($mainBalance, 2),
-                    'total_income' => number_format($totalIncome, 2),
-                    'referrals_count' => $user->referrals->count(),
+                    'balance' => number_format(max(0, $mainBalance), 2, '.', ''),
+                    'total_income' => number_format($user->total_income ?? 0, 2, '.', ''),
+                    'referrals_count' => $user->referrals_count,
                     'upline' => $user->referrer ? $user->referrer->name : 'Admin',
-                    'team' => $user->referrals, // Their specific downline
+                    'team' => $user->referrals,
                     'created_at' => $user->created_at,
                 ];
             });
