@@ -31,12 +31,10 @@ class FinanceController extends Controller
         $taskWithdrawalsEnabled = Setting::where('key', 'task_withdraw_active')->first()?->value === '1';
         $withdrawalFee = Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20;
         
-        // Pass the JSON array of progressive tiers to React
         $withdrawalFeeTiers = Setting::where('key', 'withdrawal_fee_tiers')->first()?->value;
 
         return Inertia::render('Finance/Withdraw',[
             'balances' =>['team' => max(0, $teamBalance), 'main' => max(0, $mainBalance), 'task' => max(0, $taskBalance)],
-            // Send unique dynamic minimums to the React UI
             'min_withdrawals' =>['team' => 170, 'main' => 155, 'task' => 155], 
             'task_enabled' => $taskWithdrawalsEnabled,
             'withdrawal_fee' => (float) $withdrawalFee,
@@ -48,12 +46,10 @@ class FinanceController extends Controller
     {
         $request->validate(['wallet' => 'required|in:team,main,task', 'amount' => 'required|numeric']);
         
-        // Setup array for dynamic minimum validation
         $minimums =['team' => 170, 'main' => 155, 'task' => 155];
         $wallet = $request->wallet;
         $amount = (float) $request->amount;
 
-        // Ensure amount meets the required minimum for the selected wallet
         if ($amount < $minimums[$wallet]) {
             return back()->withErrors(['amount' => "Minimum withdrawal for {$wallet} wallet is Ksh {$minimums[$wallet]}."]);
         }
@@ -65,18 +61,16 @@ class FinanceController extends Controller
         
         $user = $request->user();
         
-        // --- PROGRESSIVE FEE LOGIC ---
         $tiersJson = Setting::where('key', 'withdrawal_fee_tiers')->first()?->value;
         $feeTiers = $tiersJson ? json_decode($tiersJson, true) :[];
-        $fee = (float) (Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20); // Default fallback
+        $fee = (float) (Setting::where('key', 'withdrawal_fee')->first()?->value ?? 20);
 
         foreach($feeTiers as $tier) {
             if ($amount >= (float)$tier['min'] && $amount <= (float)$tier['max']) {
                 $fee = (float)$tier['fee'];
-                break; // Stop looking once we find the correct tier
+                break; 
             }
         }
-        // -----------------------------
 
         if ($amount <= $fee) {
             return back()->withErrors(['amount' => "Amount must be greater than the Ksh {$fee} withdrawal fee."]);
@@ -103,7 +97,7 @@ class FinanceController extends Controller
         return back()->with('success', 'Request submitted successfully! Net payout of Ksh ' . $netPayout . ' is pending.');
     }
 
-    // --- RECHARGE LOGIC ---
+    // --- RECHARGE LOGIC (LIPALINK API) ---
     public function recharge(Request $request)
     {
         $user = $request->user();
@@ -123,47 +117,45 @@ class FinanceController extends Controller
         $request->validate(['amount' => 'required|numeric|min:50|max:50000']);
         
         $user = $request->user();
-        $username = config('services.payhero.username');
-        $password = config('services.payhero.password');
-        $channelIdValue = config('services.payhero.channel_id');
+        $apiKey = config('services.lipalink.key');
+        $businessId = config('services.lipalink.business_id');
 
-        if (!$username || !$password || !$channelIdValue) {
+        if (!$apiKey || !$businessId) {
             return back()->withErrors(['pay' => 'Payment gateway not configured.']);
         }
 
         $reference = 'RCH_' . $user->id . '_' . time(); 
-        $callbackUrl = url('/api/payhero/callback');
+        
+        // Strict LipaLink phone formatting (2547...)
+        $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
 
         try {
-            // STRICT CASTING: Ensuring the PayHero API gets exact numbers, not strings
-            $payload =[
+            $response = Http::withHeaders([
+                'X-Api-Key' => $apiKey,
+                'Content-Type' => 'application/json'
+            ])->post('http://lipalink.co.ke/api/stk_push.php', [
                 'amount' => (float) $request->amount,
-                'phone_number' => $user->phone,
-                'channel_id' => (int) $channelIdValue,
-                'provider' => 'm-pesa',
-                'external_reference' => $reference,
-                'callback_url' => $callbackUrl,
-            ];
-
-            // Use Laravel Native HTTP to guarantee request formatting and catch errors properly
-            $response = Http::withBasicAuth($username, $password)
-                ->acceptJson()
-                ->asJson()
-                ->post('https://backend.payhero.co.ke/api/v2/payments', $payload);
+                'msisdn' => $msisdn,
+                'reference' => $reference,
+                'business_id' => (int) $businessId,
+            ]);
 
             $result = $response->json();
 
-            // Catch PayHero Rejection (e.g. Invalid channel or downtime)
+            // Handle strict LipaLink failures
             if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
-                $errorMsg = $result['message'] ?? $result['error'] ?? $response->body() ?? 'Invalid payment request.';
-                Log::error('PayHero Recharge API Failed: ' . $response->body());
-                return back()->withErrors(['pay' => 'PayHero Error: ' . $errorMsg]);
+                $errorMsg = $result['error'] ?? 'Invalid payment request.';
+                Log::error('LipaLink Recharge API Failed: ' . $response->body());
+                return back()->withErrors(['pay' => 'Payment Error: ' . $errorMsg]);
             }
+
+            // Save specific LipaLink transaction ID to poll instantly
+            $request->session()->put('lipalink_rch_txn', $result['transaction_id']);
 
             return back()->with('success', 'Prompt Sent');
 
         } catch (\Exception $e) {
-            Log::error('PayHero Connection Error: ' . $e->getMessage());
+            Log::error('LipaLink Connection Error: ' . $e->getMessage());
             return back()->withErrors(['pay' => 'Failed to connect. Try again.']);
         }
     }
@@ -172,7 +164,7 @@ class FinanceController extends Controller
     {
         $user = $request->user();
         
-        // 1. Check if the Webhook already deposited the money in the last 5 minutes
+        // Check if Webhook got it
         $recentDeposit = $user->transactions()
             ->where('wallet', 'main')
             ->where('description', 'like', 'M-Pesa Deposit (RCH_%')
@@ -183,34 +175,40 @@ class FinanceController extends Controller
             return response()->json(['status' => 'success']);
         }
 
-        // 2. Manual Fallback Polling
+        // Direct Polling to LipaLink
+        $txnId = $request->session()->get('lipalink_rch_txn');
+        if (!$txnId) {
+            return response()->json(['status' => 'pending']);
+        }
+
         try {
-            $response = Http::withBasicAuth(config('services.payhero.username'), config('services.payhero.password'))
-                ->get('https://backend.payhero.co.ke/api/v2/transactions');
+            $response = Http::withHeaders(['X-Api-Key' => config('services.lipalink.key')])
+                ->get('http://lipalink.co.ke/api/transaction_status.php', [
+                    'transaction_id' => $txnId
+                ]);
 
             if ($response->successful()) {
-                $transactions = $response->json()['data'] ??[];
-                $phoneSuffix = substr(trim($user->phone), -9);
+                $result = $response->json();
+                
+                if (isset($result['success']) && $result['success']) {
+                    $txStatus = strtoupper($result['status'] ?? '');
+                    
+                    if ($txStatus === 'SUCCESS') {
+                        $txRef = $result['reference'] ?? '';
+                        $txAmount = $result['amount'] ?? 0;
 
-                foreach ($transactions as $tx) {
-                    $txPhone = $tx['sender_phone'] ?? $tx['phone_number'] ?? $tx['Phone'] ?? '';
-                    $txStatus = strtoupper($tx['status'] ?? $tx['Status'] ?? '');
-                    $txRef = $tx['external_reference'] ?? $tx['ExternalReference'] ?? '';
-                    $txAmount = $tx['amount'] ?? $tx['Amount'] ?? 0;
-
-                    if (str_contains($txPhone, $phoneSuffix) && str_starts_with($txRef, 'RCH_')) {
-                        if ($txStatus === 'SUCCESS') {
-                            $exists = $user->transactions()->where('description', "M-Pesa Deposit ($txRef)")->exists();
-                            if (!$exists) {
-                                $user->transactions()->create([
-                                    'amount' => $txAmount, 'type' => 'earning', 'wallet' => 'main', 'status' => 'completed', 'description' => "M-Pesa Deposit ($txRef)"
-                                ]);
-                            }
-                            return response()->json(['status' => 'success']);
+                        $exists = $user->transactions()->where('description', "M-Pesa Deposit ($txRef)")->exists();
+                        if (!$exists) {
+                            $user->transactions()->create([
+                                'amount' => $txAmount, 'type' => 'earning', 'wallet' => 'main', 'status' => 'completed', 'description' => "M-Pesa Deposit ($txRef)"
+                            ]);
                         }
-                        if ($txStatus === 'FAILED' || $txStatus === 'CANCELLED') {
-                            return response()->json(['status' => 'failed']);
-                        }
+                        $request->session()->forget('lipalink_rch_txn');
+                        return response()->json(['status' => 'success']);
+                    }
+                    if (in_array($txStatus, ['FAILED', 'CANCELLED'])) {
+                        $request->session()->forget('lipalink_rch_txn');
+                        return response()->json(['status' => 'failed']);
                     }
                 }
             }

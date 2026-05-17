@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use App\Models\Setting;
 
 class ChatToEarnController extends Controller
 {
@@ -16,9 +17,12 @@ class ChatToEarnController extends Controller
         $chatEarnings = $user->transactions()->where('type', 'earning')->where('description', 'like', '%Chat%')->sum('amount');
         $chatsDone = $user->transactions()->where('type', 'earning')->where('description', 'like', '%Chat%')->count();
 
+        // Fetch dynamic rate from settings if admin set it, otherwise fallback to 15.00
+        $payPerMessage = Setting::where('key', 'pay_per_message')->first()?->value ?? 15.00;
+
         return Inertia::render('Tasks/ChatToEarn',[
             'stats' =>['tasks_available' => 1, 'done' => $chatsDone, 'earned' => number_format($chatEarnings, 2)],
-            'pay_per_message' => 15.00,
+            'pay_per_message' => (float) $payPerMessage,
             'cost_per_message' => 2.00,
             'credits' => $user->credits,
         ]);
@@ -31,7 +35,9 @@ class ChatToEarnController extends Controller
         $user = $request->user();
         $messageCount = $request->message_count;
         $costPerMsg = 2.00;
-        $earnPerMsg = 15.00;
+        
+        $payPerMessage = Setting::where('key', 'pay_per_message')->first()?->value ?? 15.00;
+        $earnPerMsg = (float) $payPerMessage;
 
         $totalCost = $messageCount * $costPerMsg;
         $totalEarned = $messageCount * $earnPerMsg;
@@ -54,6 +60,7 @@ class ChatToEarnController extends Controller
         return back()->withErrors(['chat' => 'Not enough credits to claim earnings.']);
     }
 
+    // --- LIPALINK LOGIC FOR BUYING CREDITS ---
     public function buyCredits(Request $request)
     {
         $user = $request->user();
@@ -61,34 +68,39 @@ class ChatToEarnController extends Controller
         // STRICT RULE: Hardcoded to exactly Ksh 49.00
         $fixedAmount = 49.00; 
 
-        $username = config('services.payhero.username');
-        $password = config('services.payhero.password');
-        $channelId = config('services.payhero.channel_id');
+        $apiKey = config('services.lipalink.key');
+        $businessId = config('services.lipalink.business_id');
 
-        if (!$username || !$password || !$channelId) return back()->withErrors(['pay' => 'Gateway not configured.']);
+        if (!$apiKey || !$businessId) return back()->withErrors(['pay' => 'Gateway not configured.']);
 
         $reference = 'CRE_' . $user->id . '_' . time(); 
-        $request->session()->put('pending_credit_ref', $reference);
-
-        // POINTING TO THE CSRF-EXEMPT WEBHOOK TUNNEL
-        $callbackUrl = route('payhero.callback');
+        
+        // Format Phone Number to strictly start with 254 for LipaLink
+        $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
+        
+        $callbackUrl = route('lipalink.callback');
 
         try {
-            $payload =[
+            $response = Http::withHeaders([
+                'X-Api-Key' => $apiKey,
+                'Content-Type' => 'application/json'
+            ])->post('http://lipalink.co.ke/api/stk_push.php', [
                 'amount' => $fixedAmount, 
-                'phone_number' => $user->phone, 
-                'channel_id' => (int) $channelId, 
-                'provider' => 'm-pesa', 
-                'external_reference' => $reference, 
-                'callback_url' => $callbackUrl,
-            ];
+                'msisdn' => $msisdn, 
+                'reference' => $reference, 
+                'business_id' => (int) $businessId,
+            ]);
 
-            $response = Http::withBasicAuth($username, $password)->acceptJson()->asJson()->post('https://backend.payhero.co.ke/api/v2/payments', $payload);
             $result = $response->json();
 
+            // LipaLink uses {"success": false, "error": "..."} for rejections
             if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
-                return back()->withErrors(['pay' => 'PayHero Error: ' . ($result['message'] ?? 'Invalid request.')]);
+                return back()->withErrors(['pay' => 'Payment Error: ' . ($result['error'] ?? 'Invalid request.')]);
             }
+            
+            // Save the exact LipaLink Transaction ID to poll instantly
+            $request->session()->put('lipalink_cre_txn', $result['transaction_id']);
+            
             return back()->with('success', 'Prompt Sent');
         } catch (\Exception $e) {
             return back()->withErrors(['pay' => 'Connection failed.']);
@@ -98,42 +110,43 @@ class ChatToEarnController extends Controller
     public function checkCreditStatus(Request $request)
     {
         $user = $request->user();
-        $reference = $request->session()->get('pending_credit_ref');
+        $txnId = $request->session()->get('lipalink_cre_txn');
 
-        // 1. Did the webhook catch it?
-        if ($user->transactions()->where('description', "Credit Purchase ($reference)")->exists()) {
-            $request->session()->forget('pending_credit_ref');
-            return response()->json(['status' => 'success']);
+        if (!$txnId) {
+            if ($user->transactions()->where('description', "like", "Credit Purchase%")->where('created_at', '>=', now()->subMinutes(5))->exists()) {
+                return response()->json(['status' => 'success']);
+            }
+            return response()->json(['status' => 'pending']);
         }
 
-        // 2. Poll fallback (Manual Check)
         try {
-            $response = Http::withBasicAuth(config('services.payhero.username'), config('services.payhero.password'))->get('https://backend.payhero.co.ke/api/v2/transactions');
+            // Direct Polling to LipaLink using the specific Transaction ID
+            $response = Http::withHeaders(['X-Api-Key' => config('services.lipalink.key')])
+                ->get('http://lipalink.co.ke/api/transaction_status.php', ['transaction_id' => $txnId]);
 
             if ($response->successful()) {
-                $transactions = $response->json()['data'] ??[];
-                $phoneSuffix = substr(trim($user->phone), -9);
-
-                foreach ($transactions as $tx) {
-                    $txPhone = $tx['sender_phone'] ?? $tx['phone_number'] ?? '';
-                    $txStatus = strtoupper($tx['status'] ?? $tx['Status'] ?? '');
-                    $txRef = $tx['external_reference'] ?? '';
-                    $txAmount = $tx['amount'] ?? 0;
-
-                    // Match strictly against the phone and success status
-                    if (str_contains($txPhone, $phoneSuffix) && $txStatus === 'SUCCESS') {
+                $result = $response->json();
+                
+                if (isset($result['success']) && $result['success']) {
+                    $txStatus = strtoupper($result['status'] ?? '');
+                    
+                    if ($txStatus === 'SUCCESS') {
+                        $txRef = $result['reference'] ?? '';
+                        $txAmount = $result['amount'] ?? 0;
                         
-                        // Make sure we didn't already process this in the last 5 minutes
-                        $exists = $user->transactions()->where('description', 'like', 'Credit Purchase%')->where('created_at', '>=', now()->subMinutes(5))->exists();
-                        
+                        $exists = $user->transactions()->where('description', "Credit Purchase ($txRef)")->exists();
                         if (!$exists) {
                             $user->increment('credits', $txAmount);
                             $user->transactions()->create([
-                                'amount' => $txAmount, 'type' => 'purchase', 'wallet' => 'system', 'status' => 'completed', 'description' => "Credit Purchase ($reference)"
+                                'amount' => $txAmount, 'type' => 'purchase', 'wallet' => 'system', 'status' => 'completed', 'description' => "Credit Purchase ($txRef)"
                             ]);
-                            $request->session()->forget('pending_credit_ref');
-                            return response()->json(['status' => 'success']);
                         }
+                        $request->session()->forget('lipalink_cre_txn');
+                        return response()->json(['status' => 'success']);
+                    }
+                    if (in_array($txStatus, ['FAILED', 'CANCELLED', 'REJECTED'])) {
+                        $request->session()->forget('lipalink_cre_txn');
+                        return response()->json(['status' => 'failed']);
                     }
                 }
             }

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\WelcomeEmail;
 use App\Mail\ReferralEarned;
+use Illuminate\Support\Facades\Http;
 
 class ActivationController extends Controller
 {
@@ -32,47 +33,47 @@ class ActivationController extends Controller
         $user = $request->user();
         $feeValue = Setting::where('key', 'activation_fee')->first()?->value ?? 0;
 
-        $username = config('services.payhero.username');
-        $password = config('services.payhero.password');
-        $channelIdValue = config('services.payhero.channel_id');
+        $apiKey = config('services.lipalink.key');
+        $businessId = config('services.lipalink.business_id');
 
-        if (!$username || !$password || !$channelIdValue) {
+        if (!$apiKey || !$businessId) {
             return back()->withErrors(['pay' => 'Payment gateway is not configured correctly on the server.']);
         }
 
         $reference = 'ACT_' . $user->id . '_' . time(); 
-        $callbackUrl = url('/api/payhero/callback');
+        
+        // Format Phone Number to strictly start with 254 for LipaLink
+        $msisdn = preg_replace('/^0/', '254', trim($user->phone));
+        $msisdn = preg_replace('/^\+/', '', $msisdn);
 
         try {
-            require_once base_path('vendor/payherokenya/payhero-php/ph-class.php');
-            
-            $payHeroAPI = new \PayHeroAPI($username, $password);
-            
-            $response = $payHeroAPI->SendCustomerMpesaStkPush(
-                (float) $feeValue, 
-                $user->phone, 
-                (int) $channelIdValue, 
-                $reference, 
-                $callbackUrl
-            );
+            $response = Http::withHeaders([
+                'X-Api-Key' => $apiKey,
+                'Content-Type' => 'application/json'
+            ])->post('http://lipalink.co.ke/api/stk_push.php', [
+                'amount' => (float) $feeValue,
+                'msisdn' => $msisdn,
+                'reference' => $reference,
+                'business_id' => (int) $businessId,
+            ]);
 
-            $result = json_decode($response, true);
+            $result = $response->json();
 
-            if (isset($result['success']) && $result['success'] === false) {
-                $errorMsg = $result['message'] ?? 'Invalid payment request.';
-                Log::error('PayHero API Package Error: ' . $response);
-                return back()->withErrors(['pay' => 'PayHero Error: ' . $errorMsg]);
+            // LipaLink uses {"success": false, "error": "..."} for rejections
+            if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
+                $errorMsg = $result['error'] ?? 'Invalid payment request.';
+                Log::error('LipaLink API Error: ' . $response->body());
+                return back()->withErrors(['pay' => 'Payment Error: ' . $errorMsg]);
             }
 
-            if (isset($result['error_code']) && $result['error_code'] === 'NOT_FOUND') {
-                return back()->withErrors(['pay' => 'PayHero Error: Your Channel ID (' . $channelIdValue . ') was not found.']);
-            }
+            // Save the exact LipaLink Transaction ID to poll instantly!
+            $request->session()->put('lipalink_act_txn', $result['transaction_id']);
 
             return back()->with('success', 'Prompt Sent');
 
         } catch (\Exception $e) {
-            Log::error('PayHero Connection Error: ' . $e->getMessage());
-            return back()->withErrors(['pay' => 'Failed to connect to PayHero servers. Please try again.']);
+            Log::error('LipaLink Connection Error: ' . $e->getMessage());
+            return back()->withErrors(['pay' => 'Failed to connect to payment servers. Please try again.']);
         }
     }
 
@@ -80,34 +81,37 @@ class ActivationController extends Controller
     {
         $user = $request->user();
         
+        // 1. Check if the webhook already activated them
         if ($user->is_active) {
             return response()->json(['status' => 'success']);
         }
 
-        $username = config('services.payhero.username');
-        $password = config('services.payhero.password');
+        // 2. Poll the exact transaction ID we saved during initiation
+        $txnId = $request->session()->get('lipalink_act_txn');
+        if (!$txnId) {
+            return response()->json(['status' => 'pending']);
+        }
 
         try {
-            $response = \Illuminate\Support\Facades\Http::withBasicAuth($username, $password)
-                ->get('https://backend.payhero.co.ke/api/v2/transactions');
+            $response = Http::withHeaders(['X-Api-Key' => config('services.lipalink.key')])
+                ->get('http://lipalink.co.ke/api/transaction_status.php', [
+                    'transaction_id' => $txnId
+                ]);
 
             if ($response->successful()) {
-                $transactions = $response->json()['data'] ??[];
-                $phoneSuffix = substr(trim($user->phone), -9);
-
-                foreach ($transactions as $tx) {
-                    $txPhone = $tx['sender_phone'] ?? $tx['phone_number'] ?? $tx['Phone'] ?? '';
-                    $txStatus = strtoupper($tx['status'] ?? $tx['Status'] ?? '');
-
-                    if (str_contains($txPhone, $phoneSuffix)) {
-                        if ($txStatus === 'SUCCESS') {
-                            $this->activateUser($user);
-                            return response()->json(['status' => 'success']);
-                        }
-
-                        if (in_array($txStatus, ['FAILED', 'CANCELLED'])) {
-                            return response()->json(['status' => 'failed']);
-                        }
+                $result = $response->json();
+                
+                if (isset($result['success']) && $result['success']) {
+                    $status = strtoupper($result['status'] ?? '');
+                    
+                    if ($status === 'SUCCESS') {
+                        $this->activateUser($user);
+                        $request->session()->forget('lipalink_act_txn');
+                        return response()->json(['status' => 'success']);
+                    }
+                    if (in_array($status, ['FAILED', 'CANCELLED'])) {
+                        $request->session()->forget('lipalink_act_txn');
+                        return response()->json(['status' => 'failed']);
                     }
                 }
             }
@@ -118,18 +122,18 @@ class ActivationController extends Controller
         }
     }
 
+    // THE UNIFIED MASTER WEBHOOK
     public function callback(Request $request)
     {
-        $data = $request->all();
-        Log::info('PayHero Webhook Received: ', $data);
+        $payload = $request->all();
+        Log::info('LipaLink Webhook Received: ', $payload);
 
-        $payload = $request->input('response') ?? $data;
+        // LipaLink sends clean keys at the top level of the JSON payload
+        $status = $payload['status'] ?? '';
+        $reference = $payload['reference'] ?? '';
+        $amount = $payload['amount'] ?? 0;
 
-        $status = $payload['Status'] ?? $payload['status'] ?? $payload['ResultDesc'] ?? '';
-        $reference = $payload['ExternalReference'] ?? $payload['external_reference'] ?? '';
-        $amount = $payload['Amount'] ?? $payload['amount'] ?? $payload['TransAmount'] ?? 0;
-
-        $isSuccess = stripos((string)$status, 'Success') !== false || stripos((string)$status, 'processed successfully') !== false;
+        $isSuccess = strcasecmp($status, 'Success') === 0;
 
         if ($isSuccess) {
             
@@ -157,10 +161,7 @@ class ActivationController extends Controller
                         $exists = $user->transactions()->where('description', "M-Pesa Deposit ($reference)")->exists();
                         if (!$exists) {
                             $user->transactions()->create([
-                                'amount' => $amount,
-                                'type' => 'earning',
-                                'wallet' => 'main',
-                                'status' => 'completed',
+                                'amount' => $amount, 'type' => 'earning', 'wallet' => 'main', 'status' => 'completed',
                                 'description' => "M-Pesa Deposit ($reference)"
                             ]);
                         }
@@ -180,29 +181,26 @@ class ActivationController extends Controller
                         if (!$exists) {
                             $user->increment('credits', $amount);
                             $user->transactions()->create([
-                                'amount' => $amount,
-                                'type' => 'purchase', // Marked as purchase to avoid inflating cash balances
-                                'wallet' => 'system',
-                                'status' => 'completed',
+                                'amount' => $amount, 'type' => 'purchase', 'wallet' => 'system', 'status' => 'completed',
                                 'description' => "Credit Purchase ($reference)"
                             ]);
                         }
                     }
                 }
             }
-
         }
 
-        return response()->json(['status' => 'received']);
+        // LipaLink requires a clean HTTP 200 JSON success response to confirm receipt
+        return response()->json(['success' => true]);
     }
 
     private function activateUser(User $user)
     {
         $user->update(['is_active' => true]);
 
-        // Send Welcome Email
-        try {
-            Mail::to($user->email)->send(new WelcomeEmail($user));
+        // Send Welcome Email gracefully
+        try { 
+            Mail::to($user->email)->send(new WelcomeEmail($user)); 
         } catch (\Exception $e) {
             Log::error("Failed to send welcome email to {$user->email}: " . $e->getMessage());
         }
@@ -210,11 +208,7 @@ class ActivationController extends Controller
         $signupBonus = Setting::where('key', 'signup_bonus')->first()?->value ?? 0;
         if ($signupBonus > 0 && !$user->transactions()->where('description', 'Welcome Signup Bonus')->exists()) {
             $user->transactions()->create([
-                'amount' => $signupBonus, 
-                'type' => 'bonus', 
-                'wallet' => 'main', 
-                'status' => 'completed', 
-                'description' => 'Welcome Signup Bonus'
+                'amount' => $signupBonus, 'type' => 'bonus', 'wallet' => 'main', 'status' => 'completed', 'description' => 'Welcome Signup Bonus'
             ]);
         }
 
@@ -224,22 +218,14 @@ class ActivationController extends Controller
                 $referrer = User::find($user->referred_by);
                 if ($referrer && !$referrer->transactions()->where('description', 'Activation commission for ' . $user->username)->exists()) {
                     
-                    // Award Commission
                     $referrer->transactions()->create([
-                        'amount' => $refBonus, 
-                        'type' => 'commission', 
-                        'wallet' => 'team', 
-                        'status' => 'completed', 
-                        'description' => 'Activation commission for ' . $user->username
+                        'amount' => $refBonus, 'type' => 'commission', 'wallet' => 'team', 'status' => 'completed', 'description' => 'Activation commission for ' . $user->username
                     ]);
 
-                    // Send Email to Referrer
                     try {
                         $earnings = $referrer->transactions()->where('wallet', 'team')->whereIn('type',['earning', 'commission', 'bonus'])->sum('amount');
                         $withdrawals = $referrer->transactions()->where('wallet', 'team')->where('type', 'withdrawal')->whereIn('status',['completed', 'pending'])->sum('amount');
-                        $newBalance = $earnings - $withdrawals;
-
-                        Mail::to($referrer->email)->send(new ReferralEarned($referrer, $user->username, $refBonus, $newBalance));
+                        Mail::to($referrer->email)->send(new ReferralEarned($referrer, $user->username, $refBonus, ($earnings - $withdrawals)));
                     } catch (\Exception $e) {
                         Log::error("Failed to send referral email to {$referrer->email}: " . $e->getMessage());
                     }
