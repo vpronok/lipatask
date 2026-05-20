@@ -26,14 +26,16 @@ Route::post('/api/lipalink/callback', [ActivationController::class, 'callback'])
 
 // 3. Unprotected Auth Routes (Activation Page)
 Route::middleware(['auth', 'verified'])->name('activation.')->group(function () {
-    Route::get('/activation', [ActivationController::class, 'index'])->name('index');
-    Route::post('/activation/pay', [ActivationController::class, 'initiatePayment'])->name('pay');
-    Route::post('/activation/check', [ActivationController::class, 'checkStatus'])->name('check');
+    Route::get('/activation',[ActivationController::class, 'index'])->name('index');
+    Route::post('/activation/pay',[ActivationController::class, 'initiatePayment'])->name('pay');
+    
+    // --- CHANGED TO GET: Prevents HTTPS Redirect blocking ---
+    Route::get('/activation/check', [ActivationController::class, 'checkStatus'])->name('check');
 });
 
 // 4. Fully Protected User Routes (Requires User to be Active)
 Route::middleware(['auth', 'verified', 'active'])->group(function () {
-    Route::get('/dashboard', [UserDashboardController::class, 'index'])->name('dashboard');
+    Route::get('/dashboard',[UserDashboardController::class, 'index'])->name('dashboard');
     
     // Profile
     Route::get('/profile',[ProfileController::class, 'edit'])->name('profile.edit');
@@ -50,7 +52,9 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
     
     // Credit Purchase Routes
     Route::post('/chat-to-earn/buy-credits',[ChatToEarnController::class, 'buyCredits'])->name('chat.credits.pay');
-    Route::post('/chat-to-earn/check-credits', [ChatToEarnController::class, 'checkCreditStatus'])->name('chat.credits.check');
+    
+    // --- CHANGED TO GET ---
+    Route::get('/chat-to-earn/check-credits', [ChatToEarnController::class, 'checkCreditStatus'])->name('chat.credits.check');
 
     // --- FINANCE ROUTES ---
     Route::get('/withdraw',[FinanceController::class, 'withdraw'])->name('withdraw');
@@ -59,7 +63,9 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
     // Recharge Routes
     Route::get('/recharge',[FinanceController::class, 'recharge'])->name('recharge');
     Route::post('/recharge/pay', [FinanceController::class, 'initiateRecharge'])->name('recharge.pay');
-    Route::post('/recharge/check', [FinanceController::class, 'checkRechargeStatus'])->name('recharge.check');
+    
+    // --- CHANGED TO GET ---
+    Route::get('/recharge/check', [FinanceController::class, 'checkRechargeStatus'])->name('recharge.check');
     // ----------------------
 
     // HISTORY routes

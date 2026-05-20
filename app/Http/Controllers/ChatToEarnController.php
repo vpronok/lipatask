@@ -88,7 +88,8 @@ class ChatToEarnController extends Controller
         // Format Phone Number to strictly start with 254 for LipaLink
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
         
-        $callbackUrl = route('lipalink.callback');
+        // FORCING STRICT HTTPS FOR THE WEBHOOK TO BYPASS NGINX BLOCKS
+        $callbackUrl = secure_url(route('lipalink.callback', [], false));
 
         try {
             $payload =[
@@ -126,7 +127,6 @@ class ChatToEarnController extends Controller
         $reference = $request->session()->get('lipalink_cre_ref');
 
         // 1. SAFETY CHECK: Check the Database first! 
-        // If the background Webhook caught the payment while we were waiting, we succeed immediately.
         if ($reference) {
             if ($user->transactions()->where('description', "Credit Purchase ($reference)")->exists()) {
                 $request->session()->forget(['lipalink_cre_txn', 'lipalink_cre_ref']);

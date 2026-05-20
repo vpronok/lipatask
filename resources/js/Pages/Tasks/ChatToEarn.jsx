@@ -24,7 +24,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
     // Custom Exit Confirmation State
     const [showExitConfirm, setShowExitConfirm] = useState(false);
     
-    // Recharge Form Logic
+    // Recharge Form Logic (DYNAMIC AMOUNT)
     const { data, setData, post, processing } = useForm({ amount: '' });
     const [isPolling, setIsPolling] = useState(false);
     const [pollMessage, setPollMessage] = useState('Waiting for PIN...');
@@ -58,7 +58,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
             setPollMessage('Waiting for PIN...');
             
             interval = setInterval(() => {
-                axios.post(route('chat.credits.check')).then(res => {
+                axios.get(route('chat.credits.check')).then(res => {
                     if (res.data.status === 'success') {
                         clearInterval(interval);
                         setPollMessage('Credits Added Successfully!');
@@ -221,7 +221,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                 </div>
             </div>
 
-            {/* ======================= RECHARGE CREDITS MODAL =========================== */}
+            {/* ======================= RECHARGE CREDITS MODAL (DYNAMIC) =========================== */}
             {modalState === 'recharge' && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/90 dark:bg-black/80 backdrop-blur-sm p-4">
                     <div className="bg-white dark:bg-[#11071c] w-full max-w-sm rounded-2xl border border-gray-200 dark:border-purple-500/30 p-6 shadow-2xl relative">
@@ -234,7 +234,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                         <div className="text-center mb-6 mt-2">
                             <div className="w-14 h-14 bg-amber-500/20 text-amber-500 rounded-full flex items-center justify-center mx-auto text-2xl mb-3 shadow-[0_0_15px_rgba(245,158,11,0.2)]">💳</div>
                             <h2 className="font-black text-xl text-gray-900 dark:text-white">Buy Chat Credits</h2>
-                            <p className="text-xs text-gray-500 mt-1">Minimum Ksh 55</p>
+                            <p className="text-xs text-gray-500 mt-1">Min Ksh 55</p>
                         </div>
 
                         {errors?.pay && <div className="bg-red-500/10 text-red-500 text-xs p-3 rounded mb-4 text-center font-bold">{errors.pay}</div>}
@@ -244,7 +244,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                             
                             <div className="mb-6">
                                 <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Amount (Ksh)</label>
-                                {/* THE FIX: Removed max="49" so users can enter any amount >= 55 */}
+                                {/* THE FIX: Completely dynamic input allowing any amount >= 55 */}
                                 <input 
                                     type="number" 
                                     min="55" 
