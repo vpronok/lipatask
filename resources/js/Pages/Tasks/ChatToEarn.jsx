@@ -17,14 +17,16 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
     const [messages, setMessages] = useState([]);
     const [inputText, setInputText] = useState('');
     const [userMessageCount, setUserMessageCount] = useState(0);
-    const [localCredits, setLocalCredits] = useState(credits); 
+    
+    // 1. FIX: Enforce Number type immediately
+    const [localCredits, setLocalCredits] = useState(Number(credits)); 
     const [isBotTyping, setIsBotTyping] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     // Custom Exit Confirmation State
     const [showExitConfirm, setShowExitConfirm] = useState(false);
     
-    // Recharge Form Logic (DYNAMIC AMOUNT)
+    // Recharge Form Logic
     const { data, setData, post, processing } = useForm({ amount: '' });
     const [isPolling, setIsPolling] = useState(false);
     const [pollMessage, setPollMessage] = useState('Waiting for PIN...');
@@ -32,6 +34,11 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
     const CHAT_DURATION = 120; 
     const [timeLeft, setTimeLeft] = useState(CHAT_DURATION);
     const messagesEndRef = useRef(null);
+
+    // 2. FIX: Watch for Inertia background reloads and update the local credits instantly!
+    useEffect(() => {
+        setLocalCredits(Number(credits));
+    }, [credits]);
 
     const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     useEffect(() => { scrollToBottom(); }, [messages, isBotTyping]);
@@ -80,7 +87,8 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
     }, [flash, modalState]);
 
     const handleStartChat = () => {
-        if (localCredits < cost_per_message) {
+        // 3. FIX: Strictly force numbers during the Math comparison so it doesn't fail alphabetically!
+        if (Number(localCredits) < Number(cost_per_message)) {
             setModalState('recharge');
             return;
         }
@@ -98,14 +106,16 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
 
     const handleSendMessage = (e) => {
         e.preventDefault();
-        if (!inputText.trim() || localCredits < cost_per_message) return;
+        
+        // Check strict math on send as well
+        if (!inputText.trim() || Number(localCredits) < Number(cost_per_message)) return;
 
         const newMsg = { id: Date.now(), text: inputText, sender: 'user' };
         setMessages((prev) => [...prev, newMsg]);
         setInputText('');
         
         setUserMessageCount((prev) => prev + 1);
-        setLocalCredits((prev) => prev - cost_per_message);
+        setLocalCredits((prev) => Number(prev) - Number(cost_per_message));
 
         setIsBotTyping(true);
         setTimeout(() => {
@@ -165,7 +175,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                             {/* LIVE CREDITS BADGE */}
                             <div className="bg-[#1a0c29] border border-gray-800 rounded-xl px-4 py-2 text-center flex items-center gap-3">
                                 <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">My Credits:</span>
-                                <span className="text-xl font-black text-white">{credits}</span>
+                                <span className="text-xl font-black text-white">{Number(localCredits).toFixed(2)}</span>
                                 <button onClick={() => setModalState('recharge')} className="ml-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded transition uppercase">Buy</button>
                             </div>
                         </div>
@@ -211,7 +221,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                     <div className="flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-2 border-t md:border-t-0 border-gray-100 dark:border-gray-800 pt-4 md:pt-0 z-10 w-full md:w-auto">
                         <div className="text-left md:text-right">
                             <p className="text-[9px] text-yellow-600 dark:text-yellow-500 font-bold uppercase tracking-widest">CLIENT PAYS</p>
-                            <h4 className="text-lg md:text-xl font-black text-gray-900 dark:text-yellow-400 leading-tight">Ksh {pay_per_message.toFixed(2)}</h4>
+                            <h4 className="text-lg md:text-xl font-black text-gray-900 dark:text-yellow-400 leading-tight">Ksh {Number(pay_per_message).toFixed(2)}</h4>
                             <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">PER MESSAGE</p>
                         </div>
                         <button onClick={handleStartChat} className="bg-[#d904f9] hover:bg-[#c204df] text-white px-8 py-3 rounded-xl font-black text-sm transition-all shadow-[0_0_15px_rgba(217,4,249,0.3)]">
@@ -221,7 +231,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                 </div>
             </div>
 
-            {/* ======================= RECHARGE CREDITS MODAL (DYNAMIC) =========================== */}
+            {/* ======================= RECHARGE CREDITS MODAL =========================== */}
             {modalState === 'recharge' && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/90 dark:bg-black/80 backdrop-blur-sm p-4">
                     <div className="bg-white dark:bg-[#11071c] w-full max-w-sm rounded-2xl border border-gray-200 dark:border-purple-500/30 p-6 shadow-2xl relative">
@@ -241,10 +251,8 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                         {errors?.amount && <div className="bg-red-500/10 text-red-500 text-xs p-3 rounded mb-4 text-center font-bold">{errors.amount}</div>}
 
                         <form onSubmit={handleBuyCredits}>
-                            
                             <div className="mb-6">
                                 <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Amount (Ksh)</label>
-                                {/* THE FIX: Completely dynamic input allowing any amount >= 55 */}
                                 <input 
                                     type="number" 
                                     min="55" 
@@ -325,7 +333,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                             <div className="h-full bg-gradient-to-r from-cyan-400 to-fuchsia-500 transition-all duration-1000 linear" style={{ width: `${(timeLeft / CHAT_DURATION) * 100}%` }}></div>
                         </div>
                         <div className="flex justify-between items-center py-1.5 px-4 bg-gray-50 dark:bg-[#150a21]">
-                            <span className="text-[10px] text-amber-600 dark:text-amber-500 font-bold">Credits: {localCredits}</span>
+                            <span className="text-[10px] text-amber-600 dark:text-amber-500 font-bold">Credits: {Number(localCredits).toFixed(2)}</span>
                             <span className="text-[10px] text-gray-500">Time remaining: <span className="font-mono text-gray-800 dark:text-gray-300 font-bold">{formatTime(timeLeft)}</span></span>
                         </div>
 
@@ -350,7 +358,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                         </div>
 
                         <div className="p-4 bg-white dark:bg-[#11071c] border-t border-gray-200 dark:border-gray-800 relative z-10">
-                            {localCredits < cost_per_message ? (
+                            {Number(localCredits) < Number(cost_per_message) ? (
                                 <div className="text-center text-rose-500 text-xs font-bold mb-3 bg-rose-50 dark:bg-rose-500/10 py-2 rounded">Out of credits! Claim your earnings and recharge.</div>
                             ) : (
                                 <form onSubmit={handleSendMessage} className="flex items-center gap-2 mb-3">
@@ -362,7 +370,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                             )}
 
                             <button onClick={handleCompleteTask} disabled={userMessageCount === 0 || isSubmitting || showExitConfirm} className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all flex justify-center items-center gap-2 ${isSubmitting ? 'bg-emerald-600 opacity-70 text-white cursor-wait' : userMessageCount > 0 ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-gray-100 dark:bg-[#1a0e29] text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}>
-                                {isSubmitting ? 'Saving Task...' : userMessageCount > 0 ? `✔️ Claim Ksh ${(userMessageCount * pay_per_message).toFixed(2)} to Task Wallet` : '🔒 Complete chat to earn reward'}
+                                {isSubmitting ? 'Saving Task...' : userMessageCount > 0 ? `✔️ Claim Ksh ${(userMessageCount * Number(pay_per_message)).toFixed(2)} to Task Wallet` : '🔒 Complete chat to earn reward'}
                             </button>
                         </div>
                     </div>
