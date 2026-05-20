@@ -12,20 +12,20 @@ const BOT_REPLIES =["Oh really? That is so interesting!", "Wow, I never thought 
 export default function ChatToEarn({ stats, pay_per_message, cost_per_message, credits }) {
     const { flash, errors } = usePage().props;
     
-    const[modalState, setModalState] = useState('hidden'); 
+    const [modalState, setModalState] = useState('hidden'); 
     const [partner, setPartner] = useState(null);
     const [messages, setMessages] = useState([]);
     const [inputText, setInputText] = useState('');
     const [userMessageCount, setUserMessageCount] = useState(0);
-    const[localCredits, setLocalCredits] = useState(credits); 
-    const[isBotTyping, setIsBotTyping] = useState(false);
+    const [localCredits, setLocalCredits] = useState(credits); 
+    const [isBotTyping, setIsBotTyping] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     // Custom Exit Confirmation State
     const [showExitConfirm, setShowExitConfirm] = useState(false);
     
-    // Recharge Form Logic (No input needed anymore, amount is fixed on backend)
-    const { post, processing } = useForm({});
+    // Recharge Form Logic
+    const { data, setData, post, processing } = useForm({ amount: '' });
     const [isPolling, setIsPolling] = useState(false);
     const [pollMessage, setPollMessage] = useState('Waiting for PIN...');
 
@@ -50,7 +50,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
         return `${m}:${s}`;
     };
 
-    // --- FIX: Credit Purchase Polling Logic ---
+    // --- Credit Purchase Polling Logic ---
     useEffect(() => {
         let interval;
         if (flash?.success === 'Prompt Sent' && modalState === 'recharge') {
@@ -162,6 +162,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                         <div className="flex justify-between items-start mb-6">
                             <div className="w-14 h-14 rounded-full border border-orange-500/50 flex items-center justify-center text-3xl shadow-[0_0_20px_rgba(249,115,22,0.3)] bg-[#1a0e29]">🌍</div>
                             
+                            {/* LIVE CREDITS BADGE */}
                             <div className="bg-[#1a0c29] border border-gray-800 rounded-xl px-4 py-2 text-center flex items-center gap-3">
                                 <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">My Credits:</span>
                                 <span className="text-xl font-black text-white">{credits}</span>
@@ -233,15 +234,27 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                         <div className="text-center mb-6 mt-2">
                             <div className="w-14 h-14 bg-amber-500/20 text-amber-500 rounded-full flex items-center justify-center mx-auto text-2xl mb-3 shadow-[0_0_15px_rgba(245,158,11,0.2)]">💳</div>
                             <h2 className="font-black text-xl text-gray-900 dark:text-white">Buy Chat Credits</h2>
-                            <p className="text-xs text-gray-500 mt-1">Fixed recharge bundle</p>
+                            <p className="text-xs text-gray-500 mt-1">Minimum Ksh 55</p>
                         </div>
 
                         {errors?.pay && <div className="bg-red-500/10 text-red-500 text-xs p-3 rounded mb-4 text-center font-bold">{errors.pay}</div>}
+                        {errors?.amount && <div className="bg-red-500/10 text-red-500 text-xs p-3 rounded mb-4 text-center font-bold">{errors.amount}</div>}
 
                         <form onSubmit={handleBuyCredits}>
-                            <div className="bg-gray-50 dark:bg-[#1a0c29] border border-gray-200 dark:border-gray-800 rounded-xl p-4 flex justify-between items-center mb-6">
-                                <span className="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-widest text-xs">Amount to Pay</span>
-                                <span className="text-fuchsia-600 dark:text-fuchsia-400 font-black text-xl">Ksh 49</span>
+                            
+                            <div className="mb-6">
+                                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Amount (Ksh)</label>
+                                {/* THE FIX: Removed max="49" so users can enter any amount >= 55 */}
+                                <input 
+                                    type="number" 
+                                    min="55" 
+                                    value={data.amount} 
+                                    onChange={e => setData('amount', e.target.value)} 
+                                    required 
+                                    disabled={isPolling || processing} 
+                                    placeholder="e.g. 100" 
+                                    className="w-full bg-gray-50 dark:bg-[#1a0c29] border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white rounded-xl px-4 py-3 focus:ring-1 focus:ring-fuchsia-500 font-bold" 
+                                />
                             </div>
 
                             {isPolling ? (
@@ -250,8 +263,8 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                                     <span className="text-amber-600 dark:text-amber-500 font-bold text-sm">{pollMessage}</span>
                                 </div>
                             ) : (
-                                <button type="submit" disabled={processing} className={`w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition shadow-[0_0_15px_rgba(16,185,129,0.3)] ${processing && 'opacity-50 cursor-wait'}`}>
-                                    Pay Ksh 49 with M-Pesa
+                                <button type="submit" disabled={processing || !data.amount} className={`w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition shadow-[0_0_15px_rgba(16,185,129,0.3)] ${(processing || !data.amount) && 'opacity-50 cursor-not-allowed'}`}>
+                                    Pay Ksh {data.amount || '0'} with M-Pesa
                                 </button>
                             )}
                         </form>
@@ -277,7 +290,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/90 dark:bg-black/80 backdrop-blur-sm p-4 sm:p-6">
                     <div className="bg-white dark:bg-[#11071c] w-full max-w-md h-full max-h-[600px] rounded-2xl border border-gray-200 dark:border-purple-500/30 shadow-2xl flex flex-col relative overflow-hidden">
                         
-                        {/* --- CUSTOM EXIT CONFIRMATION MODAL (OVERLAYS CHAT) --- */}
+                        {/* --- CUSTOM EXIT CONFIRMATION MODAL --- */}
                         {showExitConfirm && (
                             <div className="absolute inset-0 z-[60] bg-gray-900/90 dark:bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm transition-opacity">
                                 <div className="bg-white dark:bg-[#1a0e29] border border-gray-200 dark:border-gray-800 rounded-2xl p-6 w-full text-center shadow-2xl">

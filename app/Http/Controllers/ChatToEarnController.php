@@ -60,18 +60,24 @@ class ChatToEarnController extends Controller
         return back()->withErrors(['chat' => 'Not enough credits to claim earnings.']);
     }
 
-    // --- LIPALINK LOGIC FOR BUYING CREDITS ---
+    // --- LIPALINK LOGIC FOR BUYING CREDITS (DYNAMIC) ---
     public function buyCredits(Request $request)
     {
+        // STRICT RULE: User defines amount, but minimum is Ksh 55
+        $request->validate([
+            'amount' => 'required|numeric|min:55'
+        ], [
+            'amount.min' => 'The minimum credit recharge amount is KSh 55.'
+        ]);
+
         $user = $request->user();
-        
-        // STRICT RULE: Hardcoded to exactly Ksh 49.00
-        $fixedAmount = 49.00; 
 
         $apiKey = config('services.lipalink.key');
         $businessId = config('services.lipalink.business_id');
 
-        if (!$apiKey || !$businessId) return back()->withErrors(['pay' => 'Gateway not configured.']);
+        if (!$apiKey || !$businessId) {
+            return back()->withErrors(['pay' => 'Gateway not configured.']);
+        }
 
         $reference = 'CRE_' . $user->id . '_' . time(); 
         
@@ -81,15 +87,17 @@ class ChatToEarnController extends Controller
         $callbackUrl = route('lipalink.callback');
 
         try {
-            $response = Http::withHeaders([
-                'X-Api-Key' => $apiKey,
-                'Content-Type' => 'application/json'
-            ])->post('http://lipalink.co.ke/api/stk_push.php', [
-                'amount' => $fixedAmount, 
+            $payload =[
+                'amount' => (float) $request->amount, // Passing the user's dynamic amount securely
                 'msisdn' => $msisdn, 
                 'reference' => $reference, 
                 'business_id' => (int) $businessId,
-            ]);
+            ];
+
+            $response = Http::withHeaders([
+                'X-Api-Key' => $apiKey,
+                'Content-Type' => 'application/json'
+            ])->post('http://lipalink.co.ke/api/stk_push.php', $payload);
 
             $result = $response->json();
 
