@@ -42,6 +42,7 @@ class ChatToEarnController extends Controller
         $totalCost = $messageCount * $costPerMsg;
         $totalEarned = $messageCount * $earnPerMsg;
 
+        // Security check
         if ($user->credits < $totalCost) {
             $messageCount = floor($user->credits / $costPerMsg);
             $totalCost = $messageCount * $costPerMsg;
@@ -60,7 +61,7 @@ class ChatToEarnController extends Controller
         return back()->withErrors(['chat' => 'Not enough credits to claim earnings.']);
     }
 
-    // --- LIPALINK LOGIC FOR BUYING CREDITS (DYNAMIC) ---
+    // --- LIPALINK LOGIC FOR BUYING CREDITS (DYNAMIC KSH 55+) ---
     public function buyCredits(Request $request)
     {
         // STRICT RULE: User defines amount, but minimum is Ksh 55
@@ -81,6 +82,9 @@ class ChatToEarnController extends Controller
 
         $reference = 'CRE_' . $user->id . '_' . time(); 
         
+        // Save BOTH the txn ID and the reference to state so we can reliably fall back to checking the DB
+        $request->session()->put('lipalink_cre_ref', $reference);
+
         // Format Phone Number to strictly start with 254 for LipaLink
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
         
@@ -88,7 +92,7 @@ class ChatToEarnController extends Controller
 
         try {
             $payload =[
-                'amount' => (float) $request->amount, // Passing the user's dynamic amount securely
+                'amount' => (float) $request->amount, 
                 'msisdn' => $msisdn, 
                 'reference' => $reference, 
                 'business_id' => (int) $businessId,
@@ -119,43 +123,56 @@ class ChatToEarnController extends Controller
     {
         $user = $request->user();
         $txnId = $request->session()->get('lipalink_cre_txn');
+        $reference = $request->session()->get('lipalink_cre_ref');
 
-        if (!$txnId) {
+        // 1. SAFETY CHECK: Check the Database first! 
+        // If the background Webhook caught the payment while we were waiting, we succeed immediately.
+        if ($reference) {
+            if ($user->transactions()->where('description', "Credit Purchase ($reference)")->exists()) {
+                $request->session()->forget(['lipalink_cre_txn', 'lipalink_cre_ref']);
+                return response()->json(['status' => 'success']);
+            }
+        } else {
+            // General fallback if session lost
             if ($user->transactions()->where('description', "like", "Credit Purchase%")->where('created_at', '>=', now()->subMinutes(5))->exists()) {
                 return response()->json(['status' => 'success']);
             }
+        }
+
+        if (!$txnId) {
             return response()->json(['status' => 'pending']);
         }
 
+        // 2. MANUAL POLLING: Check LipaLink directly
         try {
-            // Direct Polling to LipaLink using the specific Transaction ID
             $response = Http::withHeaders(['X-Api-Key' => config('services.lipalink.key')])
                 ->get('http://lipalink.co.ke/api/transaction_status.php', ['transaction_id' => $txnId]);
 
             if ($response->successful()) {
                 $result = $response->json();
                 
-                if (isset($result['success']) && $result['success']) {
-                    $txStatus = strtoupper($result['status'] ?? '');
+                // Extract status directly (Bypasses the strict boolean checking flaw)
+                $txStatus = strtoupper($result['status'] ?? '');
+                
+                if ($txStatus === 'SUCCESS') {
+                    $txRef = $result['reference'] ?? $reference;
+                    $txAmount = $result['amount'] ?? 0;
                     
-                    if ($txStatus === 'SUCCESS') {
-                        $txRef = $result['reference'] ?? '';
-                        $txAmount = $result['amount'] ?? 0;
-                        
-                        $exists = $user->transactions()->where('description', "Credit Purchase ($txRef)")->exists();
-                        if (!$exists) {
-                            $user->increment('credits', $txAmount);
-                            $user->transactions()->create([
-                                'amount' => $txAmount, 'type' => 'purchase', 'wallet' => 'system', 'status' => 'completed', 'description' => "Credit Purchase ($txRef)"
-                            ]);
-                        }
-                        $request->session()->forget('lipalink_cre_txn');
-                        return response()->json(['status' => 'success']);
+                    // Double verify it hasn't been credited yet to prevent duplicate processing
+                    $exists = $user->transactions()->where('description', "Credit Purchase ($txRef)")->exists();
+                    if (!$exists) {
+                        $user->increment('credits', $txAmount);
+                        $user->transactions()->create([
+                            'amount' => $txAmount, 'type' => 'purchase', 'wallet' => 'system', 'status' => 'completed', 'description' => "Credit Purchase ($txRef)"
+                        ]);
                     }
-                    if (in_array($txStatus, ['FAILED', 'CANCELLED', 'REJECTED'])) {
-                        $request->session()->forget('lipalink_cre_txn');
-                        return response()->json(['status' => 'failed']);
-                    }
+                    $request->session()->forget(['lipalink_cre_txn', 'lipalink_cre_ref']);
+                    return response()->json(['status' => 'success']);
+                }
+                
+                if (in_array($txStatus, ['FAILED', 'CANCELLED', 'REJECTED'])) {
+                    $request->session()->forget(['lipalink_cre_txn', 'lipalink_cre_ref']);
+                    return response()->json(['status' => 'failed']);
                 }
             }
             return response()->json(['status' => 'pending']);
