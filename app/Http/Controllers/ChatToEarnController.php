@@ -42,7 +42,6 @@ class ChatToEarnController extends Controller
         $totalCost = $messageCount * $costPerMsg;
         $totalEarned = $messageCount * $earnPerMsg;
 
-        // Security check
         if ($user->credits < $totalCost) {
             $messageCount = floor($user->credits / $costPerMsg);
             $totalCost = $messageCount * $costPerMsg;
@@ -61,36 +60,23 @@ class ChatToEarnController extends Controller
         return back()->withErrors(['chat' => 'Not enough credits to claim earnings.']);
     }
 
-    // --- LIPALINK LOGIC FOR BUYING CREDITS (DYNAMIC KSH 55+) ---
+    // --- LIPALINK LOGIC FOR BUYING CREDITS (DATABASE DRIVEN) ---
     public function buyCredits(Request $request)
     {
-        // STRICT RULE: User defines amount, but minimum is Ksh 55
-        $request->validate([
-            'amount' => 'required|numeric|min:55'
-        ], [
-            'amount.min' => 'The minimum credit recharge amount is KSh 55.'
-        ]);
-
+        $request->validate(['amount' => 'required|numeric|min:55']); 
         $user = $request->user();
 
-        $apiKey = config('services.lipalink.key');
-        $businessId = config('services.lipalink.business_id');
+        // Use env() directly as a fail-safe in case config cache breaks
+        $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
+        $businessId = env('LIPALINK_BUSINESS_ID', config('services.lipalink.business_id'));
 
         if (!$apiKey || !$businessId) {
-            return back()->withErrors(['pay' => 'Gateway not configured.']);
+            return back()->withErrors(['pay' => 'Gateway not configured. Check .env']);
         }
 
         $reference = 'CRE_' . $user->id . '_' . time(); 
-        
-        // Save BOTH the txn ID and the reference to state so we can reliably fall back to checking the DB
-        $request->session()->put('lipalink_cre_ref', $reference);
-
-        // Format Phone Number to strictly start with 254 for LipaLink
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
         
-        // FORCING STRICT HTTPS FOR THE WEBHOOK TO BYPASS NGINX BLOCKS
-        $callbackUrl = secure_url(route('lipalink.callback', [], false));
-
         try {
             $payload =[
                 'amount' => (float) $request->amount, 
@@ -99,23 +85,34 @@ class ChatToEarnController extends Controller
                 'business_id' => (int) $businessId,
             ];
 
-            $response = Http::withHeaders([
-                'X-Api-Key' => $apiKey,
-                'Content-Type' => 'application/json'
-            ])->post('http://lipalink.co.ke/api/stk_push.php', $payload);
+            // withoutVerifying() bypasses strict SSL blocks that sometimes cause curl 60 errors
+            $response = Http::withoutVerifying()
+                ->withHeaders([
+                    'X-Api-Key' => $apiKey,
+                    'Content-Type' => 'application/json'
+                ])->post('http://lipalink.co.ke/api/stk_push.php', $payload);
 
             $result = $response->json();
 
-            // LipaLink uses {"success": false, "error": "..."} for rejections
             if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
                 return back()->withErrors(['pay' => 'Payment Error: ' . ($result['error'] ?? 'Invalid request.')]);
             }
             
-            // Save the exact LipaLink Transaction ID to poll instantly
-            $request->session()->put('lipalink_cre_txn', $result['transaction_id']);
+            $txnId = $result['transaction_id'];
+
+            // --- THE FIX: USE EXISTING ENUM TYPES TO PREVENT MYSQL CRASHES ---
+            // We append the TXN ID into the description so we can safely extract it during polling
+            $user->transactions()->create([
+                'amount' => $request->amount,
+                'type' => 'activation', // Safe fallback within ENUM rules
+                'wallet' => 'store',    // Safe fallback within ENUM rules
+                'status' => 'pending',
+                'description' => "Credit Purchase ({$reference}) [TXN:{$txnId}]"
+            ]);
             
             return back()->with('success', 'Prompt Sent');
         } catch (\Exception $e) {
+            Log::error('LipaLink Init Error: ' . $e->getMessage());
             return back()->withErrors(['pay' => 'Connection failed.']);
         }
     }
@@ -123,61 +120,69 @@ class ChatToEarnController extends Controller
     public function checkCreditStatus(Request $request)
     {
         $user = $request->user();
-        $txnId = $request->session()->get('lipalink_cre_txn');
-        $reference = $request->session()->get('lipalink_cre_ref');
+        
+        // 1. Find the pending transaction in the database
+        $pendingTx = $user->transactions()
+            ->where('description', 'like', 'Credit Purchase%[TXN:%')
+            ->where('status', 'pending')
+            ->latest()
+            ->first();
 
-        // 1. SAFETY CHECK: Check the Database first! 
-        if ($reference) {
-            if ($user->transactions()->where('description', "Credit Purchase ($reference)")->exists()) {
-                $request->session()->forget(['lipalink_cre_txn', 'lipalink_cre_ref']);
-                return response()->json(['status' => 'success']);
+        // 2. If a pending transaction exists, extract the LipaLink ID and ask LipaLink directly
+        if ($pendingTx) {
+            preg_match('/\[TXN:(.+?)\]/', $pendingTx->description, $matches);
+            $txnId = $matches[1] ?? null;
+
+            if ($txnId) {
+                try {
+                    $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
+                    
+                    $response = Http::withoutVerifying()
+                        ->withHeaders(['X-Api-Key' => $apiKey])
+                        ->get('http://lipalink.co.ke/api/transaction_status.php', ['transaction_id' => $txnId]);
+
+                    if ($response->successful()) {
+                        $result = $response->json();
+                        $status = strtoupper($result['status'] ?? '');
+                        
+                        if ($status === 'SUCCESS') {
+                            // Clean up the description
+                            $cleanDesc = preg_replace('/ \[TXN:.+?\]/', '', $pendingTx->description);
+                            
+                            // Mark as Complete & Add Credits!
+                            $pendingTx->update([
+                                'status' => 'completed',
+                                'description' => $cleanDesc
+                            ]);
+                            $user->increment('credits', $pendingTx->amount);
+                            
+                            return response()->json(['status' => 'success']);
+                        }
+                        
+                        if (in_array($status, ['FAILED', 'CANCELLED', 'REJECTED'])) {
+                            $pendingTx->update(['status' => 'rejected']);
+                            return response()->json(['status' => 'failed']);
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::error("Polling Error: " . $e->getMessage());
+                    // Keep waiting
+                }
             }
         } else {
-            // General fallback if session lost
-            if ($user->transactions()->where('description', "like", "Credit Purchase%")->where('created_at', '>=', now()->subMinutes(5))->exists()) {
+            // 3. FALLBACK: If no pending transaction exists, check if it was completed recently!
+            $recentlyCompleted = $user->transactions()
+                ->where('description', 'like', 'Credit Purchase%')
+                ->where('status', 'completed')
+                ->where('created_at', '>=', now()->subMinutes(5))
+                ->exists();
+
+            if ($recentlyCompleted) {
                 return response()->json(['status' => 'success']);
             }
         }
 
-        if (!$txnId) {
-            return response()->json(['status' => 'pending']);
-        }
-
-        // 2. MANUAL POLLING: Check LipaLink directly
-        try {
-            $response = Http::withHeaders(['X-Api-Key' => config('services.lipalink.key')])
-                ->get('http://lipalink.co.ke/api/transaction_status.php', ['transaction_id' => $txnId]);
-
-            if ($response->successful()) {
-                $result = $response->json();
-                
-                // Extract status directly (Bypasses the strict boolean checking flaw)
-                $txStatus = strtoupper($result['status'] ?? '');
-                
-                if ($txStatus === 'SUCCESS') {
-                    $txRef = $result['reference'] ?? $reference;
-                    $txAmount = $result['amount'] ?? 0;
-                    
-                    // Double verify it hasn't been credited yet to prevent duplicate processing
-                    $exists = $user->transactions()->where('description', "Credit Purchase ($txRef)")->exists();
-                    if (!$exists) {
-                        $user->increment('credits', $txAmount);
-                        $user->transactions()->create([
-                            'amount' => $txAmount, 'type' => 'purchase', 'wallet' => 'system', 'status' => 'completed', 'description' => "Credit Purchase ($txRef)"
-                        ]);
-                    }
-                    $request->session()->forget(['lipalink_cre_txn', 'lipalink_cre_ref']);
-                    return response()->json(['status' => 'success']);
-                }
-                
-                if (in_array($txStatus, ['FAILED', 'CANCELLED', 'REJECTED'])) {
-                    $request->session()->forget(['lipalink_cre_txn', 'lipalink_cre_ref']);
-                    return response()->json(['status' => 'failed']);
-                }
-            }
-            return response()->json(['status' => 'pending']);
-        } catch (\Exception $e) {
-            return response()->json(['status' => 'pending']);
-        }
+        // Keep polling...
+        return response()->json(['status' => 'pending']);
     }
 }
