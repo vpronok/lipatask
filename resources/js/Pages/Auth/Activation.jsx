@@ -6,12 +6,16 @@ export default function Activation({ fee, phone, flash, errors }) {
     const { post, processing } = useForm({});
     
     // UI States for Polling
-    const[isPolling, setIsPolling] = useState(false);
+    const [isPolling, setIsPolling] = useState(false);
     const [pollMessage, setPollMessage] = useState('Waiting for M-Pesa PIN...');
 
     const initiatePayment = (e) => {
         e.preventDefault();
-        post(route('activation.pay'));
+        // Added preserveState and preserveScroll to prevent the UI from freezing/resetting
+        post(route('activation.pay'), {
+            preserveState: true,
+            preserveScroll: true,
+        });
     };
 
     // The Polling Logic
@@ -24,7 +28,8 @@ export default function Activation({ fee, phone, flash, errors }) {
             
             // Check the status silently in the background every 4 seconds
             interval = setInterval(() => {
-                axios.post(route('activation.check'))
+                // FIXED: Using axios.get() to prevent Nginx HTTPS redirect drops
+                axios.get(route('activation.check'))
                     .then(response => {
                         if (response.data.status === 'success') {
                             clearInterval(interval);
@@ -48,7 +53,7 @@ export default function Activation({ fee, phone, flash, errors }) {
 
     return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-[#0d0415] text-white font-sans selection:bg-fuchsia-500">
-            <Head title="Account Activation | Lipatask" />
+            <Head title="Account Activation | Chatwazungu" />
 
             <div className="w-full max-w-[420px] bg-[#1a1125] border border-fuchsia-500/30 rounded-3xl p-8 shadow-[0_0_40px_rgba(217,4,249,0.15)] relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-fuchsia-500/20 blur-3xl rounded-full pointer-events-none"></div>
@@ -56,7 +61,7 @@ export default function Activation({ fee, phone, flash, errors }) {
                 <div className="text-center mb-8">
                     <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center text-2xl mb-4 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)]">📱</div>
                     <h1 className="text-2xl font-black uppercase tracking-wider text-white">Activate Account</h1>
-                    <p className="text-gray-400 text-sm mt-2">Complete M-Pesa verification to access your Lipatask dashboard.</p>
+                    <p className="text-gray-400 text-sm mt-2">Complete M-Pesa verification to access your Chatwazungu dashboard.</p>
                 </div>
                 
                 {errors?.pay && (
