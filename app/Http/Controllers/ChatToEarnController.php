@@ -17,7 +17,6 @@ class ChatToEarnController extends Controller
         $chatEarnings = $user->transactions()->where('type', 'earning')->where('description', 'like', '%Chat%')->sum('amount');
         $chatsDone = $user->transactions()->where('type', 'earning')->where('description', 'like', '%Chat%')->count();
 
-        // Fetch dynamic rate from settings if admin set it, otherwise fallback to 15.00
         $payPerMessage = Setting::where('key', 'pay_per_message')->first()?->value ?? 15.00;
 
         return Inertia::render('Tasks/ChatToEarn',[
@@ -60,13 +59,12 @@ class ChatToEarnController extends Controller
         return back()->withErrors(['chat' => 'Not enough credits to claim earnings.']);
     }
 
-    // --- LIPALINK LOGIC FOR BUYING CREDITS (DATABASE DRIVEN) ---
+    // --- LIPALINK LOGIC FOR BUYING CREDITS ---
     public function buyCredits(Request $request)
     {
         $request->validate(['amount' => 'required|numeric|min:55']); 
         $user = $request->user();
 
-        // Use env() directly as a fail-safe in case config cache breaks
         $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
         $businessId = env('LIPALINK_BUSINESS_ID', config('services.lipalink.business_id'));
 
@@ -77,6 +75,9 @@ class ChatToEarnController extends Controller
         $reference = 'CRE_' . $user->id . '_' . time(); 
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
         
+        // FIX: Force strictly HTTPS so Nginx doesn't strip the webhook payload!
+        $callbackUrl = secure_url(route('lipalink.callback', [], false));
+
         try {
             $payload =[
                 'amount' => (float) $request->amount, 
@@ -85,7 +86,6 @@ class ChatToEarnController extends Controller
                 'business_id' => (int) $businessId,
             ];
 
-            // withoutVerifying() bypasses strict SSL blocks that sometimes cause curl 60 errors
             $response = Http::withoutVerifying()
                 ->withHeaders([
                     'X-Api-Key' => $apiKey,
@@ -100,12 +100,10 @@ class ChatToEarnController extends Controller
             
             $txnId = $result['transaction_id'];
 
-            // --- THE FIX: USE EXISTING ENUM TYPES TO PREVENT MYSQL CRASHES ---
-            // We append the TXN ID into the description so we can safely extract it during polling
             $user->transactions()->create([
                 'amount' => $request->amount,
-                'type' => 'activation', // Safe fallback within ENUM rules
-                'wallet' => 'store',    // Safe fallback within ENUM rules
+                'type' => 'activation',
+                'wallet' => 'store',
                 'status' => 'pending',
                 'description' => "Credit Purchase ({$reference}) [TXN:{$txnId}]"
             ]);
@@ -137,6 +135,7 @@ class ChatToEarnController extends Controller
                 try {
                     $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
                     
+                    // THE FIX: Added `withoutVerifying()` here to prevent silent SSL crashes during polling!
                     $response = Http::withoutVerifying()
                         ->withHeaders(['X-Api-Key' => $apiKey])
                         ->get('http://lipalink.co.ke/api/transaction_status.php', ['transaction_id' => $txnId]);
@@ -146,10 +145,8 @@ class ChatToEarnController extends Controller
                         $status = strtoupper($result['status'] ?? '');
                         
                         if ($status === 'SUCCESS') {
-                            // Clean up the description
                             $cleanDesc = preg_replace('/ \[TXN:.+?\]/', '', $pendingTx->description);
                             
-                            // Mark as Complete & Add Credits!
                             $pendingTx->update([
                                 'status' => 'completed',
                                 'description' => $cleanDesc
@@ -166,11 +163,11 @@ class ChatToEarnController extends Controller
                     }
                 } catch (\Exception $e) {
                     Log::error("Polling Error: " . $e->getMessage());
-                    // Keep waiting
+                    // Keep waiting silently
                 }
             }
         } else {
-            // 3. FALLBACK: If no pending transaction exists, check if it was completed recently!
+            // 3. FALLBACK: Check if webhook activated it in the background recently
             $recentlyCompleted = $user->transactions()
                 ->where('description', 'like', 'Credit Purchase%')
                 ->where('status', 'completed')
