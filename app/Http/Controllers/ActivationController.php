@@ -44,7 +44,11 @@ class ActivationController extends Controller
         $reference = 'ACT_' . $user->id . '_' . time(); 
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
 
+        // Bypass Nginx redirect blocks
+        $callbackUrl = secure_url(route('lipalink.callback', [], false));
+
         try {
+            // Bypass SSL verifications that can block outgoing Curl requests
             $response = Http::withoutVerifying()->withHeaders([
                 'X-Api-Key' => $apiKey,
                 'Content-Type' => 'application/json'
@@ -65,11 +69,12 @@ class ActivationController extends Controller
 
             $txnId = $result['transaction_id'];
 
-            // FIX: ENUM DATABASE COMPLIANCE
+            // FIX: CREATE PENDING TRANSACTION IN DB TO AVOID SESSION LOSS
+            // We use activation/store enums to prevent MySQL column constraint crashes
             $user->transactions()->create([
                 'amount' => $feeValue,
-                'type' => 'activation', // Allowed Enum
-                'wallet' => 'store',    // Allowed Enum fallback
+                'type' => 'activation',
+                'wallet' => 'store',
                 'status' => 'pending',
                 'description' => "Account Activation ({$reference}) [TXN:{$txnId}]"
             ]);
@@ -77,7 +82,6 @@ class ActivationController extends Controller
             return back()->with('success', 'Prompt Sent');
 
         } catch (\Exception $e) {
-            // Logs the true error to storage/logs/laravel.log so you can debug in the future!
             Log::error('LipaLink Connection/DB Error: ' . $e->getMessage());
             return back()->withErrors(['pay' => 'Failed to connect to payment servers. Please try again.']);
         }
@@ -117,7 +121,12 @@ class ActivationController extends Controller
                         $status = strtoupper($result['status'] ?? '');
                         
                         if ($status === 'SUCCESS') {
-                            $pendingTx->update(['status' => 'completed']);
+                            $cleanDesc = preg_replace('/ \[TXN:.+?\]/', '', $pendingTx->description);
+                            $pendingTx->update([
+                                'status' => 'completed',
+                                'description' => $cleanDesc
+                            ]);
+                            
                             $this->activateUser($user);
                             return response()->json(['status' => 'success']);
                         }
@@ -160,7 +169,10 @@ class ActivationController extends Controller
                     if ($user && !$user->is_active) {
                         // Mark the pending db record as completed
                         $pendingTx = $user->transactions()->where('description', 'like', "Account Activation ({$reference})%")->first();
-                        if ($pendingTx) $pendingTx->update(['status' => 'completed']);
+                        if ($pendingTx) {
+                            $cleanDesc = preg_replace('/ \[TXN:.+?\]/', '', $pendingTx->description);
+                            $pendingTx->update(['status' => 'completed', 'description' => $cleanDesc]);
+                        }
                         
                         $this->activateUser($user);
                     }
@@ -181,6 +193,13 @@ class ActivationController extends Controller
                                 'amount' => $amount, 'type' => 'earning', 'wallet' => 'main', 'status' => 'completed',
                                 'description' => "M-Pesa Deposit ($reference)"
                             ]);
+                        } else {
+                            // If it exists but is pending, mark complete
+                            $pendingTx = $user->transactions()->where('description', 'like', "M-Pesa Deposit ({$reference})%")->where('status', 'pending')->first();
+                            if ($pendingTx) {
+                                $cleanDesc = preg_replace('/ \[TXN:.+?\]/', '', $pendingTx->description);
+                                $pendingTx->update(['status' => 'completed', 'description' => $cleanDesc]);
+                            }
                         }
                     }
                 }
@@ -194,22 +213,20 @@ class ActivationController extends Controller
                 if ($userId && $amount > 0) {
                     $user = User::find($userId);
                     if ($user) {
-                        // Check if the webhook already credited them to prevent duplicate parsing
-                        $exists = $user->transactions()->where('description', 'like', "Credit Purchase ($reference)%")->exists();
+                        $exists = $user->transactions()->where('description', "like", "Credit Purchase ($reference)%")->where('status', 'completed')->exists();
+                        
                         if (!$exists) {
                             $user->increment('credits', $amount);
-                            // FIX ENUM CONSTRAINTS HERE TOO!
-                            $user->transactions()->create([
-                                'amount' => $amount, 'type' => 'activation', 'wallet' => 'store', 'status' => 'completed',
-                                'description' => "Credit Purchase ($reference)"
-                            ]);
-                        } else {
-                            // If a pending record already exists from the polling init, just mark it completed
+                            
                             $pendingTx = $user->transactions()->where('description', 'like', "Credit Purchase ({$reference})%")->where('status', 'pending')->first();
                             if ($pendingTx) {
                                 $cleanDesc = preg_replace('/ \[TXN:.+?\]/', '', $pendingTx->description);
                                 $pendingTx->update(['status' => 'completed', 'description' => $cleanDesc]);
-                                $user->increment('credits', $amount);
+                            } else {
+                                $user->transactions()->create([
+                                    'amount' => $amount, 'type' => 'activation', 'wallet' => 'store', 'status' => 'completed',
+                                    'description' => "Credit Purchase ($reference)"
+                                ]);
                             }
                         }
                     }

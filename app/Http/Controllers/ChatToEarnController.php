@@ -17,6 +17,7 @@ class ChatToEarnController extends Controller
         $chatEarnings = $user->transactions()->where('type', 'earning')->where('description', 'like', '%Chat%')->sum('amount');
         $chatsDone = $user->transactions()->where('type', 'earning')->where('description', 'like', '%Chat%')->count();
 
+        // Fetch dynamic rate from settings if admin set it, otherwise fallback to 15.00
         $payPerMessage = Setting::where('key', 'pay_per_message')->first()?->value ?? 15.00;
 
         return Inertia::render('Tasks/ChatToEarn',[
@@ -75,7 +76,7 @@ class ChatToEarnController extends Controller
         $reference = 'CRE_' . $user->id . '_' . time(); 
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
         
-        // FIX: Force strictly HTTPS so Nginx doesn't strip the webhook payload!
+        // Force strictly HTTPS so Nginx doesn't strip the webhook payload!
         $callbackUrl = secure_url(route('lipalink.callback', [], false));
 
         try {
@@ -86,11 +87,12 @@ class ChatToEarnController extends Controller
                 'business_id' => (int) $businessId,
             ];
 
+            // FIX: Changed http:// to https://
             $response = Http::withoutVerifying()
                 ->withHeaders([
                     'X-Api-Key' => $apiKey,
                     'Content-Type' => 'application/json'
-                ])->post('http://lipalink.co.ke/api/stk_push.php', $payload);
+                ])->post('https://lipalink.co.ke/api/stk_push.php', $payload);
 
             $result = $response->json();
 
@@ -135,10 +137,10 @@ class ChatToEarnController extends Controller
                 try {
                     $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
                     
-                    // THE FIX: Added `withoutVerifying()` here to prevent silent SSL crashes during polling!
+                    // FIX: Changed http:// to https:// 
                     $response = Http::withoutVerifying()
                         ->withHeaders(['X-Api-Key' => $apiKey])
-                        ->get('http://lipalink.co.ke/api/transaction_status.php', ['transaction_id' => $txnId]);
+                        ->get('https://lipalink.co.ke/api/transaction_status.php', ['transaction_id' => $txnId]);
 
                     if ($response->successful()) {
                         $result = $response->json();
@@ -162,8 +164,9 @@ class ChatToEarnController extends Controller
                         }
                     }
                 } catch (\Exception $e) {
-                    Log::error("Polling Error: " . $e->getMessage());
-                    // Keep waiting silently
+                    // FIX: Catch PHP errors and send to React so it stops spinning forever!
+                    Log::error("Credit Polling Error: " . $e->getMessage());
+                    return response()->json(['status' => 'error', 'message' => $e->getMessage()]);
                 }
             }
         } else {

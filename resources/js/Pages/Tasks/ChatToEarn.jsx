@@ -18,7 +18,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
     const [inputText, setInputText] = useState('');
     const [userMessageCount, setUserMessageCount] = useState(0);
     
-    // 1. FIX: Enforce Number type immediately
+    // Enforce Number type immediately for strict math
     const [localCredits, setLocalCredits] = useState(Number(credits)); 
     const [isBotTyping, setIsBotTyping] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -35,7 +35,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
     const [timeLeft, setTimeLeft] = useState(CHAT_DURATION);
     const messagesEndRef = useRef(null);
 
-    // 2. FIX: Watch for Inertia background reloads and update the local credits instantly!
+    // Watch for Inertia background reloads and update local credits instantly
     useEffect(() => {
         setLocalCredits(Number(credits));
     }, [credits]);
@@ -57,7 +57,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
         return `${m}:${s}`;
     };
 
-    // --- Credit Purchase Polling Logic ---
+    // --- BULLETPROOF CREDIT PURCHASE POLLING LOGIC ---
     useEffect(() => {
         let interval;
         if (flash?.success === 'Prompt Sent' && modalState === 'recharge') {
@@ -74,20 +74,29 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                             setModalState('hidden'); 
                             setIsPolling(false);
                         }, 1500);
-                    } else if (res.data.status === 'failed') {
+                    } 
+                    else if (res.data.status === 'failed') {
                         clearInterval(interval); 
                         setIsPolling(false);
                         alert('M-Pesa payment failed or was cancelled.'); 
                         router.reload();
                     }
-                }).catch(err => console.error(err));
+                    // THE FIX: Catch PHP errors from the server and alert them so it doesn't freeze!
+                    else if (res.data.status === 'error') {
+                        clearInterval(interval); 
+                        setIsPolling(false);
+                        alert('Server Error: ' + res.data.message); 
+                        router.reload();
+                    }
+                }).catch(err => {
+                    console.error("Network Error during polling:", err);
+                });
             }, 4000);
         }
         return () => clearInterval(interval);
     }, [flash, modalState]);
 
     const handleStartChat = () => {
-        // 3. FIX: Strictly force numbers during the Math comparison so it doesn't fail alphabetically!
         if (Number(localCredits) < Number(cost_per_message)) {
             setModalState('recharge');
             return;
@@ -251,6 +260,7 @@ export default function ChatToEarn({ stats, pay_per_message, cost_per_message, c
                         {errors?.amount && <div className="bg-red-500/10 text-red-500 text-xs p-3 rounded mb-4 text-center font-bold">{errors.amount}</div>}
 
                         <form onSubmit={handleBuyCredits}>
+                            
                             <div className="mb-6">
                                 <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">Amount (Ksh)</label>
                                 <input 
