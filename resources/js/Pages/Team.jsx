@@ -1,8 +1,8 @@
 import LipataskLayout from '@/Layouts/LipataskLayout';
-import { Head } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { useState } from 'react';
 
-export default function Team({ stats, referrals, referralLink }) {
+export default function Team({ stats, referrals, filters, referralLink }) {
     
     // Add state tracking here too
     const [copied, setCopied] = useState(false);
@@ -60,16 +60,40 @@ export default function Team({ stats, referrals, referralLink }) {
 
             {/* Members List */}
             <div className="bg-white dark:bg-[#150a21] rounded-xl border border-gray-100 dark:border-purple-900/30 overflow-hidden shadow-sm">
-                <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
-                    <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">👥 All Members</h3>
-                    <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs px-3 py-1 rounded-full font-bold">{stats.total} found</span>
+                <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                    <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">👥 Members</h3>
+                        <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs px-3 py-1 rounded-full font-bold">{referrals.total || 0} found</span>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <select 
+                            value={filters?.filter || 'all'} 
+                            onChange={(e) => router.get(route('team'), { filter: e.target.value, per_page: filters?.per_page }, { preserveState: true })}
+                            className="bg-gray-50 dark:bg-[#090210] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                        >
+                            <option value="all">All Status</option>
+                            <option value="active">Active Only</option>
+                            <option value="inactive">Inactive Only</option>
+                        </select>
+                        
+                        <select 
+                            value={filters?.per_page || 20} 
+                            onChange={(e) => router.get(route('team'), { filter: filters?.filter, per_page: e.target.value }, { preserveState: true })}
+                            className="bg-gray-50 dark:bg-[#090210] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                        >
+                            <option value="20">20 per page</option>
+                            <option value="50">50 per page</option>
+                            <option value="100">100 per page</option>
+                        </select>
+                    </div>
                 </div>
                 
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {referrals.length === 0 ? (
-                        <div className="p-8 text-center text-gray-400">You don't have any referrals yet. Share your link!</div>
+                    {referrals.data.length === 0 ? (
+                        <div className="p-8 text-center text-gray-400">No referrals found matching your criteria.</div>
                     ) : (
-                        referrals.map((ref) => (
+                        referrals.data.map((ref) => (
                             <div key={ref.id} className="p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition">
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 rounded bg-gradient-to-br from-fuchsia-500 to-purple-600 flex items-center justify-center font-bold text-white text-lg">
@@ -98,6 +122,25 @@ export default function Team({ stats, referrals, referralLink }) {
                         ))
                     )}
                 </div>
+                
+                {/* Pagination */}
+                {referrals.links && referrals.links.length > 3 && (
+                    <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex flex-wrap gap-1 justify-center">
+                        {referrals.links.map((link, i) => (
+                            <Link
+                                key={i}
+                                href={link.url || '#'}
+                                className={`px-3 py-1 text-xs rounded-md border ${
+                                    link.active 
+                                    ? 'bg-fuchsia-500 text-white border-fuchsia-500' 
+                                    : 'bg-white dark:bg-[#150a21] text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-white/5'
+                                } ${!link.url ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                dangerouslySetInnerHTML={{ __html: link.label }}
+                                preserveState={true}
+                            />
+                        ))}
+                    </div>
+                )}
             </div>
         </LipataskLayout>
     );
