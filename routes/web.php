@@ -17,6 +17,10 @@ Route::get('/', function () {
     return redirect()->route('login');
 });
 
+Route::get('/privacy', function () {
+    return Inertia::render('Privacy');
+})->name('privacy');
+
 // =========================================================
 // 2. THE MASTER LIPALINK WEBHOOK (Exempt from CSRF!)
 // =========================================================
