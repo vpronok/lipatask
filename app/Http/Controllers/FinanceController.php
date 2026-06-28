@@ -97,7 +97,7 @@ class FinanceController extends Controller
         return back()->with('success', 'Request submitted successfully! Net payout of Ksh ' . $netPayout . ' is pending.');
     }
 
-    // --- RECHARGE LOGIC (LIPALINK API) ---
+    // --- RECHARGE LOGIC (PAYHERO API) ---
     public function recharge(Request $request)
     {
         $user = $request->user();
@@ -117,45 +117,50 @@ class FinanceController extends Controller
         $request->validate(['amount' => 'required|numeric|min:50|max:50000']);
         
         $user = $request->user();
-        $apiKey = config('services.lipalink.key');
-        $businessId = config('services.lipalink.business_id');
+        $username = config('services.payhero.username');
+        $password = config('services.payhero.password');
+        $channelId = config('services.payhero.channel_id');
 
-        if (!$apiKey || !$businessId) {
+        if (!$username || !$password || !$channelId) {
             return back()->withErrors(['pay' => 'Payment gateway not configured.']);
         }
 
         $reference = 'RCH_' . $user->id . '_' . time(); 
         
-        // Strict LipaLink phone formatting (2547...)
+        // Phone formatting (2547...)
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
+        $callbackUrl = secure_url(route('payhero.callback', [], false));
 
         try {
-            $response = Http::withHeaders([
-                'X-Api-Key' => $apiKey,
+            $token = base64_encode("$username:$password");
+            $response = Http::withoutVerifying()->withHeaders([
+                'Authorization' => 'Basic ' . $token,
                 'Content-Type' => 'application/json'
-            ])->post('http://lipalink.co.ke/api/stk_push.php', [
+            ])->post('https://backend.payhero.co.ke/api/v2/payments', [
                 'amount' => (float) $request->amount,
-                'msisdn' => $msisdn,
-                'reference' => $reference,
-                'business_id' => (int) $businessId,
+                'phone_number' => $msisdn,
+                'channel_id' => (int) $channelId,
+                'provider' => 'm-pesa',
+                'external_reference' => $reference,
+                'callback_url' => $callbackUrl,
             ]);
 
             $result = $response->json();
 
-            // Handle strict LipaLink failures
             if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
-                $errorMsg = $result['error'] ?? 'Invalid payment request.';
-                Log::error('LipaLink Recharge API Failed: ' . $response->body());
+                $errorMsg = $result['message'] ?? $result['error'] ?? 'Invalid payment request.';
+                Log::error('PayHero Recharge API Failed: ' . $response->body());
                 return back()->withErrors(['pay' => 'Payment Error: ' . $errorMsg]);
             }
 
-            // Save specific LipaLink transaction ID to poll instantly
-            $request->session()->put('lipalink_rch_txn', $result['transaction_id']);
+            // Save specific PayHero transaction ID to poll instantly
+            $txnId = $result['reference'] ?? $result['transaction_id'] ?? $reference;
+            $request->session()->put('payhero_rch_txn', $txnId);
 
             return back()->with('success', 'Prompt Sent');
 
         } catch (\Exception $e) {
-            Log::error('LipaLink Connection Error: ' . $e->getMessage());
+            Log::error('PayHero Connection Error: ' . $e->getMessage());
             return back()->withErrors(['pay' => 'Failed to connect. Try again.']);
         }
     }
@@ -175,16 +180,20 @@ class FinanceController extends Controller
             return response()->json(['status' => 'success']);
         }
 
-        // Direct Polling to LipaLink
-        $txnId = $request->session()->get('lipalink_rch_txn');
+        // Direct Polling to PayHero
+        $txnId = $request->session()->get('payhero_rch_txn');
         if (!$txnId) {
             return response()->json(['status' => 'pending']);
         }
 
         try {
-            $response = Http::withHeaders(['X-Api-Key' => config('services.lipalink.key')])
-                ->get('http://lipalink.co.ke/api/transaction_status.php', [
-                    'transaction_id' => $txnId
+            $username = config('services.payhero.username');
+            $password = config('services.payhero.password');
+            $token = base64_encode("$username:$password");
+
+            $response = Http::withoutVerifying()->withHeaders(['Authorization' => 'Basic ' . $token])
+                ->get('https://backend.payhero.co.ke/api/v2/transaction-status', [
+                    'reference' => $txnId
                 ]);
 
             if ($response->successful()) {
@@ -194,7 +203,7 @@ class FinanceController extends Controller
                     $txStatus = strtoupper($result['status'] ?? '');
                     
                     if ($txStatus === 'SUCCESS') {
-                        $txRef = $result['reference'] ?? '';
+                        $txRef = $result['external_reference'] ?? $result['reference'] ?? '';
                         $txAmount = $result['amount'] ?? 0;
 
                         $exists = $user->transactions()->where('description', "M-Pesa Deposit ($txRef)")->exists();
@@ -203,11 +212,11 @@ class FinanceController extends Controller
                                 'amount' => $txAmount, 'type' => 'earning', 'wallet' => 'main', 'status' => 'completed', 'description' => "M-Pesa Deposit ($txRef)"
                             ]);
                         }
-                        $request->session()->forget('lipalink_rch_txn');
+                        $request->session()->forget('payhero_rch_txn');
                         return response()->json(['status' => 'success']);
                     }
                     if (in_array($txStatus, ['FAILED', 'CANCELLED'])) {
-                        $request->session()->forget('lipalink_rch_txn');
+                        $request->session()->forget('payhero_rch_txn');
                         return response()->json(['status' => 'failed']);
                     }
                 }

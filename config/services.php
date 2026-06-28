@@ -34,16 +34,11 @@ return [
            'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
        ],
     ],
-    // // --- PAYHERO REGISTRATION GLOBALLY ---
-    // 'payhero' =>[
-    //     'username' => env('PAYHERO_USERNAME'),
-    //     'password' => env('PAYHERO_PASSWORD'),
-    //     'channel_id' => env('PAYHERO_CHANNEL_ID'),
-    // ],
-    // --- LIPALINK REGISTRATION GLOBALLY---
-    'lipalink' => [
-        'key' => env('LIPALINK_API_KEY'),
-        'business_id' => env('LIPALINK_BUSINESS_ID'),
+    // --- PAYHERO REGISTRATION GLOBALLY ---
+    'payhero' => [
+        'username' => env('PAYHERO_USERNAME'),
+        'password' => env('PAYHERO_PASSWORD'),
+        'channel_id' => env('PAYHERO_CHANNEL_ID'),
     ],
 
 ];

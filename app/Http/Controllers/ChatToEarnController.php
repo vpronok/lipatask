@@ -60,16 +60,17 @@ class ChatToEarnController extends Controller
         return back()->withErrors(['chat' => 'Not enough credits to claim earnings.']);
     }
 
-    // --- LIPALINK LOGIC FOR BUYING CREDITS ---
+    // --- PAYHERO LOGIC FOR BUYING CREDITS ---
     public function buyCredits(Request $request)
     {
         $request->validate(['amount' => 'required|numeric|min:55']); 
         $user = $request->user();
 
-        $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
-        $businessId = env('LIPALINK_BUSINESS_ID', config('services.lipalink.business_id'));
+        $username = config('services.payhero.username');
+        $password = config('services.payhero.password');
+        $channelId = config('services.payhero.channel_id');
 
-        if (!$apiKey || !$businessId) {
+        if (!$username || !$password || !$channelId) {
             return back()->withErrors(['pay' => 'Gateway not configured. Check .env']);
         }
 
@@ -77,30 +78,32 @@ class ChatToEarnController extends Controller
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
         
         // Force strictly HTTPS so Nginx doesn't strip the webhook payload!
-        $callbackUrl = secure_url(route('lipalink.callback', [], false));
+        $callbackUrl = secure_url(route('payhero.callback', [], false));
 
         try {
             $payload =[
                 'amount' => (float) $request->amount, 
-                'msisdn' => $msisdn, 
-                'reference' => $reference, 
-                'business_id' => (int) $businessId,
+                'phone_number' => $msisdn, 
+                'external_reference' => $reference, 
+                'channel_id' => (int) $channelId,
+                'provider' => 'm-pesa',
+                'callback_url' => $callbackUrl,
             ];
 
-            // FIX: Changed http:// to https://
+            $token = base64_encode("$username:$password");
             $response = Http::withoutVerifying()
                 ->withHeaders([
-                    'X-Api-Key' => $apiKey,
+                    'Authorization' => 'Basic ' . $token,
                     'Content-Type' => 'application/json'
-                ])->post('https://lipalink.co.ke/api/stk_push.php', $payload);
+                ])->post('https://backend.payhero.co.ke/api/v2/payments', $payload);
 
             $result = $response->json();
 
             if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
-                return back()->withErrors(['pay' => 'Payment Error: ' . ($result['error'] ?? 'Invalid request.')]);
+                return back()->withErrors(['pay' => 'Payment Error: ' . ($result['message'] ?? $result['error'] ?? 'Invalid request.')]);
             }
             
-            $txnId = $result['transaction_id'];
+            $txnId = $result['reference'] ?? $result['transaction_id'] ?? $reference;
 
             $user->transactions()->create([
                 'amount' => $request->amount,
@@ -112,7 +115,7 @@ class ChatToEarnController extends Controller
             
             return back()->with('success', 'Prompt Sent');
         } catch (\Exception $e) {
-            Log::error('LipaLink Init Error: ' . $e->getMessage());
+            Log::error('PayHero Init Error: ' . $e->getMessage());
             return back()->withErrors(['pay' => 'Connection failed.']);
         }
     }
@@ -128,19 +131,20 @@ class ChatToEarnController extends Controller
             ->latest()
             ->first();
 
-        // 2. If a pending transaction exists, extract the LipaLink ID and ask LipaLink directly
+        // 2. If a pending transaction exists, extract the PayHero ID and ask PayHero directly
         if ($pendingTx) {
             preg_match('/\[TXN:(.+?)\]/', $pendingTx->description, $matches);
             $txnId = $matches[1] ?? null;
 
             if ($txnId) {
                 try {
-                    $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
+                    $username = config('services.payhero.username');
+                    $password = config('services.payhero.password');
+                    $token = base64_encode("$username:$password");
                     
-                    // FIX: Changed http:// to https:// 
                     $response = Http::withoutVerifying()
-                        ->withHeaders(['X-Api-Key' => $apiKey])
-                        ->get('https://lipalink.co.ke/api/transaction_status.php', ['transaction_id' => $txnId]);
+                        ->withHeaders(['Authorization' => 'Basic ' . $token])
+                        ->get('https://backend.payhero.co.ke/api/v2/transaction-status', ['reference' => $txnId]);
 
                     if ($response->successful()) {
                         $result = $response->json();

@@ -22,11 +22,11 @@ Route::get('/privacy', function () {
 })->name('privacy');
 
 // =========================================================
-// 2. THE MASTER LIPALINK WEBHOOK (Exempt from CSRF!)
+// 2. THE MASTER PAYHERO WEBHOOK (Exempt from CSRF!)
 // =========================================================
-Route::post('/api/lipalink/callback', [ActivationController::class, 'callback'])
+Route::post('/api/payhero/callback', [ActivationController::class, 'callback'])
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])
-    ->name('lipalink.callback');
+    ->name('payhero.callback');
 
 // 3. Unprotected Auth Routes (Activation Page)
 Route::middleware(['auth', 'verified'])->name('activation.')->group(function () {
