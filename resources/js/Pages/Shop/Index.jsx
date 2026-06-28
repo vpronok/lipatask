@@ -1,4 +1,4 @@
-import { Head, usePage, useForm, Link } from '@inertiajs/react';
+import { Head, usePage, Link, router } from '@inertiajs/react';
 import LipataskLayout from '@/Layouts/LipataskLayout';
 import { useState, useEffect } from 'react';
 
@@ -9,25 +9,30 @@ export default function ShopIndex({ books, purchasedBookIds, phone }) {
     const [statusChecker, setStatusChecker] = useState(null);
     const [paymentStatus, setPaymentStatus] = useState(null); // null, 'pending', 'success', 'failed'
 
-    const { post, processing } = useForm({});
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const handleBuy = (bookId) => {
-        if (processing) return;
+        if (isProcessing) return;
+        setIsProcessing(true);
         setPayingBookId(bookId);
         setPaymentStatus('pending');
 
-        post(route('shop.buy'), {
-            data: { book_id: bookId },
-            preserveState: true,
-            preserveScroll: true,
-            onSuccess: () => {
-                startCheckingStatus();
-            },
-            onError: () => {
-                setPayingBookId(null);
-                setPaymentStatus('failed');
+        router.post(route('shop.buy'), 
+            { book_id: bookId },
+            {
+                preserveState: true,
+                preserveScroll: true,
+                onSuccess: () => {
+                    setIsProcessing(false);
+                    startCheckingStatus();
+                },
+                onError: () => {
+                    setIsProcessing(false);
+                    setPayingBookId(null);
+                    setPaymentStatus('failed');
+                }
             }
-        });
+        );
     };
 
     const startCheckingStatus = () => {
@@ -127,7 +132,7 @@ export default function ShopIndex({ books, purchasedBookIds, phone }) {
                                             ) : (
                                                 <button 
                                                     onClick={() => handleBuy(book.id)}
-                                                    disabled={processing || paymentStatus === 'pending'}
+                                                    disabled={isProcessing || paymentStatus === 'pending'}
                                                     className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg shadow-orange-500/30 transition transform hover:scale-105 disabled:opacity-50"
                                                 >
                                                     Buy Now
