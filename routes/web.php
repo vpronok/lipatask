@@ -8,6 +8,7 @@ use App\Http\Controllers\LeaderboardController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\ActivationController;
 use App\Http\Controllers\ChatToEarnController;
+use App\Http\Controllers\ShopController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -75,6 +76,12 @@ Route::middleware(['auth', 'verified', 'active'])->group(function () {
     // HISTORY routes
     Route::get('/history',[FinanceController::class, 'history'])->name('history');
     Route::get('/bonuses',[FinanceController::class, 'bonuses'])->name('bonuses');
+
+    // --- SHOP ROUTES ---
+    Route::get('/shop', [ShopController::class, 'index'])->name('shop');
+    Route::get('/shop/my-books', [ShopController::class, 'myBooks'])->name('shop.my-books');
+    Route::post('/shop/buy', [ShopController::class, 'buyBook'])->name('shop.buy');
+    Route::get('/shop/check', [ShopController::class, 'checkStatus'])->name('shop.check');
 });
 
 // 5. Chatwazungu Admin Dashboard
@@ -92,6 +99,11 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('/users/store', [AdminController::class, 'storeUser'])->name('users.store');
     Route::post('/users/{id}/update',[AdminController::class, 'updateUser'])->name('users.update');
     Route::delete('/users/{id}/delete',[AdminController::class, 'deleteUser'])->name('users.delete');
+
+    // Books Management
+    Route::post('/books/store', [AdminController::class, 'storeBook'])->name('books.store');
+    Route::post('/books/{id}/update', [AdminController::class, 'updateBook'])->name('books.update');
+    Route::delete('/books/{id}/delete', [AdminController::class, 'deleteBook'])->name('books.delete');
 });
 
 require __DIR__.'/auth.php';

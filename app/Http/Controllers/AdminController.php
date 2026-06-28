@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Transaction;
 use App\Models\Setting;
+use App\Models\Book;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Carbon\Carbon;
@@ -17,6 +18,8 @@ class AdminController extends Controller
         
         $settings = Setting::pluck('value', 'key')->toArray();
         $activationFee = (float) ($settings['activation_fee'] ?? 0);
+        
+        $books = Book::latest()->get();
 
         // Daily Analytics
         $dailySignups = User::whereDate('updated_at', $today)->where('is_active', true)->count();
@@ -103,6 +106,7 @@ class AdminController extends Controller
             'withdrawal_history' => $historyWithdrawals,
             'users' => $users, // Now contains pagination data (.data and .links)
             'settings' => $settings,
+            'books' => $books,
             'filters' => $request->only(['search', 'status', 'tab']), // Pass back to frontend to keep state alive
         ]);
     }
@@ -160,6 +164,43 @@ class AdminController extends Controller
             'referral_code' => strtoupper(substr(uniqid(), -8)), 
         ]);
 
+        return back();
+    }
+
+    public function storeBook(Request $request)
+    {
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'price' => 'required|numeric|min:0',
+            'image_url' => 'nullable|url',
+            'file_url' => 'nullable|url',
+            'is_active' => 'boolean'
+        ]);
+        
+        Book::create($validated);
+        return back();
+    }
+
+    public function updateBook(Request $request, $id)
+    {
+        $book = Book::findOrFail($id);
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'price' => 'required|numeric|min:0',
+            'image_url' => 'nullable|url',
+            'file_url' => 'nullable|url',
+            'is_active' => 'boolean'
+        ]);
+        
+        $book->update($validated);
+        return back();
+    }
+
+    public function deleteBook($id)
+    {
+        Book::findOrFail($id)->delete();
         return back();
     }
 }

@@ -1,7 +1,7 @@
 import { Head, router, useForm, Link } from '@inertiajs/react';
 import { useState, useEffect, useRef } from 'react';
 
-export default function AdminDashboard({ analytics, withdrawals, withdrawal_history, users, settings, filters }) {
+export default function AdminDashboard({ analytics, withdrawals, withdrawal_history, users, settings, books, filters }) {
     
     // --- UI NAVIGATION & MOBILE STATE ---
     const[activeTab, setActiveTab] = useState(filters?.tab || 'analytics'); 
@@ -99,6 +99,30 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
         name: '', username: '', phone: '', email: '', password: '', role: 'user', is_active: true 
     });
 
+    // --- SHOP / BOOK LOGIC ---
+    const [editingBook, setEditingBook] = useState(null);
+    const [showAddBookModal, setShowAddBookModal] = useState(false);
+    const [editBookData, setEditBookData] = useState({});
+    const addBookForm = useForm({
+        title: '', description: '', price: '', image_url: '', file_url: '', is_active: true
+    });
+
+    const openEditBookMode = (b) => {
+        setEditingBook(b.id);
+        setEditBookData({ title: b.title, description: b.description || '', price: b.price, image_url: b.image_url || '', file_url: b.file_url || '', is_active: b.is_active });
+    };
+    const submitBookEdit = (e, bookId) => {
+        e.preventDefault();
+        router.post(route('admin.books.update', bookId), editBookData, { preserveScroll: true, onSuccess: () => setEditingBook(null) });
+    };
+    const submitAddBook = (e) => {
+        e.preventDefault();
+        addBookForm.post(route('admin.books.store'), { preserveScroll: true, onSuccess: () => { setShowAddBookModal(false); addBookForm.reset(); } });
+    };
+    const handleDeleteBook = (id) => {
+        if (confirm("Delete this book?")) router.delete(route('admin.books.delete', id), { preserveScroll: true });
+    };
+
     const openEditMode = (u) => {
         setEditingUser(u.id);
         setEditData({ name: u.name, phone: u.phone || '', email: u.email, role: u.role, is_active: u.is_active });
@@ -176,6 +200,10 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
 
                     <button onClick={() => handleTabChange('config')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'config' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
                         <span>⚙️</span> Master Configuration
+                    </button>
+
+                    <button onClick={() => handleTabChange('shop')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'shop' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
+                        <span>📚</span> E-Book Shop
                     </button>
                 </nav>
 
@@ -505,6 +533,80 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                     </div>
                 )}
 
+                {/* --- TAB 7: E-BOOK SHOP --- */}
+                {activeTab === 'shop' && (
+                    <div className="animate-[fadeIn_0.3s_ease-out]">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-3xl font-black text-white">E-Book <span className="text-blue-500">Shop</span></h2>
+                            <button onClick={() => setShowAddBookModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg">
+                                + Add New Book
+                            </button>
+                        </div>
+
+                        <div className="bg-[#11071c] rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
+                            <div className="px-6 py-4 border-b border-gray-800 bg-[#150a21]">
+                                <h3 className="font-bold text-sm text-gray-300">📚 Books Directory</h3>
+                            </div>
+                            <div className="overflow-x-auto pb-6">
+                                <table className="w-full text-sm text-left text-gray-300 min-w-[700px]">
+                                    <thead className="text-[10px] text-gray-500 uppercase bg-[#0d0415]">
+                                        <tr>
+                                            <th className="px-6 py-3">Title & Details</th>
+                                            <th className="px-6 py-3">Price</th>
+                                            <th className="px-6 py-3">Status</th>
+                                            <th className="px-6 py-3 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-800">
+                                        {books?.length === 0 ? (
+                                            <tr><td colSpan="4" className="px-6 py-8 text-center text-gray-500">No books added yet.</td></tr>
+                                        ) : books?.map((b) => (
+                                            <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                                                {editingBook !== b.id ? (
+                                                    <>
+                                                        <td className="px-6 py-4">
+                                                            <p className="font-bold text-white">{b.title}</p>
+                                                            <p className="text-xs text-gray-500 truncate max-w-[300px]">{b.description}</p>
+                                                        </td>
+                                                        <td className="px-6 py-4 font-black text-emerald-400">Ksh {b.price}</td>
+                                                        <td className="px-6 py-4">
+                                                            <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-black tracking-wider ${b.is_active ? 'text-emerald-400 bg-emerald-500/10' : 'text-rose-400 bg-rose-500/10'}`}>
+                                                                {b.is_active ? 'Active' : 'Inactive'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right space-x-2">
+                                                            <button onClick={() => openEditBookMode(b)} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-xs font-bold transition">Edit</button>
+                                                            <button onClick={() => handleDeleteBook(b.id)} className="bg-red-900/50 hover:bg-red-600 text-red-400 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition">Del</button>
+                                                        </td>
+                                                    </>
+                                                ) : (
+                                                    <td colSpan="4" className="px-6 py-4 bg-[#1a0e29]">
+                                                        <form onSubmit={(e) => submitBookEdit(e, b.id)} className="flex flex-wrap items-center gap-3 w-full">
+                                                            <input type="text" value={editBookData.title} onChange={e => setEditBookData({...editBookData, title: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white flex-1 min-w-[120px]" placeholder="Title" required />
+                                                            <input type="text" value={editBookData.description} onChange={e => setEditBookData({...editBookData, description: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white flex-1 min-w-[150px]" placeholder="Description" />
+                                                            <input type="number" value={editBookData.price} onChange={e => setEditBookData({...editBookData, price: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white w-[100px]" placeholder="Price" required />
+                                                            <input type="url" value={editBookData.image_url} onChange={e => setEditBookData({...editBookData, image_url: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white flex-1 min-w-[150px]" placeholder="Image URL" />
+                                                            <input type="url" value={editBookData.file_url} onChange={e => setEditBookData({...editBookData, file_url: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white flex-1 min-w-[150px]" placeholder="File/Download URL" />
+                                                            <select value={editBookData.is_active ? '1' : '0'} onChange={e => setEditBookData({...editBookData, is_active: e.target.value === '1'})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-xs text-white">
+                                                                <option value="1">Active</option>
+                                                                <option value="0">Inactive</option>
+                                                            </select>
+                                                            <div className="text-right space-x-2 w-full mt-2 md:mt-0 md:w-auto">
+                                                                <button type="button" onClick={() => setEditingBook(null)} className="text-gray-400 hover:text-white text-xs font-bold px-2">Cancel</button>
+                                                                <button type="submit" className="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold">Save</button>
+                                                            </div>
+                                                        </form>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
             </main>
 
             {/* ================= ADD NEW USER MODAL ================= */}
@@ -531,6 +633,27 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                             {addUserForm.errors.email && <p className="text-red-500 text-xs text-center">{addUserForm.errors.email}</p>}
                             {addUserForm.errors.phone && <p className="text-red-500 text-xs text-center">{addUserForm.errors.phone}</p>}
                             {addUserForm.errors.username && <p className="text-red-500 text-xs text-center">{addUserForm.errors.username}</p>}
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* ================= ADD NEW BOOK MODAL ================= */}
+            {showAddBookModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[#11071c] w-full max-w-md rounded-2xl border border-blue-500/30 shadow-2xl overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+                        <div className="p-4 border-b border-gray-800 bg-[#150a21] flex justify-between items-center">
+                            <h3 className="font-bold text-white text-lg">➕ Add New Book</h3>
+                            <button onClick={() => setShowAddBookModal(false)} className="text-gray-500 hover:text-white bg-gray-800 w-8 h-8 rounded-full">✖</button>
+                        </div>
+                        <form onSubmit={submitAddBook} className="p-6 space-y-4">
+                            <div><label className="text-xs text-gray-400 mb-1 block">Title</label><input type="text" value={addBookForm.data.title} onChange={e=>addBookForm.setData('title', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" required/></div>
+                            <div><label className="text-xs text-gray-400 mb-1 block">Description</label><textarea value={addBookForm.data.description} onChange={e=>addBookForm.setData('description', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" rows="3"></textarea></div>
+                            <div><label className="text-xs text-gray-400 mb-1 block">Price (Ksh)</label><input type="number" value={addBookForm.data.price} onChange={e=>addBookForm.setData('price', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" required/></div>
+                            <div><label className="text-xs text-gray-400 mb-1 block">Cover Image URL</label><input type="url" value={addBookForm.data.image_url} onChange={e=>addBookForm.setData('image_url', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" /></div>
+                            <div><label className="text-xs text-gray-400 mb-1 block">File/Download URL</label><input type="url" value={addBookForm.data.file_url} onChange={e=>addBookForm.setData('file_url', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" /></div>
+                            
+                            <button type="submit" disabled={addBookForm.processing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl mt-4 shadow-[0_0_15px_rgba(37,99,235,0.4)]">Save Book</button>
                         </form>
                     </div>
                 </div>

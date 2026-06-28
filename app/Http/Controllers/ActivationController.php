@@ -239,6 +239,34 @@ class ActivationController extends Controller
                     }
                 }
             }
+            
+            // 4. Handle Book Purchases (BOK_)
+            elseif (str_starts_with($reference, 'BOK_')) {
+                $parts = explode('_', $reference);
+                $userId = $parts[1] ?? null;
+                $bookId = $parts[2] ?? null;
+
+                if ($userId && $bookId && $amount > 0) {
+                    $user = User::find($userId);
+                    if ($user) {
+                        $purchase = \App\Models\Purchase::where('user_id', $userId)->where('book_id', $bookId)->where('reference', $reference)->first();
+                        if ($purchase) {
+                            $purchase->update(['status' => 'completed']);
+                            
+                            $exists = $user->transactions()->where('description', "Book Purchase ($bookId)")->exists();
+                            if (!$exists) {
+                                $user->transactions()->create([
+                                    'amount' => $amount, 
+                                    'type' => 'withdrawal', 
+                                    'wallet' => 'main', 
+                                    'status' => 'completed', 
+                                    'description' => "Book Purchase ($bookId)"
+                                ]);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         return response()->json(['success' => true]);
