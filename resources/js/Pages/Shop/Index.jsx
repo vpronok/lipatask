@@ -18,6 +18,7 @@ export default function ShopIndex({ books, purchasedBookIds, phone }) {
 
         post(route('shop.buy'), {
             data: { book_id: bookId },
+            preserveState: true,
             preserveScroll: true,
             onSuccess: () => {
                 startCheckingStatus();
