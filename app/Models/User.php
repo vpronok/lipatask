@@ -68,4 +68,9 @@ class User extends Authenticatable
     {
         return $this->belongsTo(User::class, 'referred_by');
     }
+
+    public function purchases()
+    {
+        return $this->hasMany(Purchase::class);
+    }
 }
