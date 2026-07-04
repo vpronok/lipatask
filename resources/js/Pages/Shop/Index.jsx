@@ -68,18 +68,18 @@ export default function ShopIndex({ books, purchasedBookIds, phone }) {
 
     return (
         <LipataskLayout>
-            <Head title="E-Book Shop" />
+            <Head title="Chat na Wazungu" />
 
             <div className="max-w-7xl mx-auto py-8 animate-[fadeIn_0.5s_ease-out]">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                     <div>
                         <h1 className="text-3xl md:text-4xl font-black text-gray-900 dark:text-white">
-                            E-Book <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-red-500">Shop</span>
+                            Chat na <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-red-500">Wazungu</span>
                         </h1>
                         <p className="text-gray-500 dark:text-gray-400 mt-2">Invest in your mind. Purchase premium self-improvement books.</p>
                     </div>
                     <Link href={route('shop.my-books')} className="bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 hover:to-fuchsia-500 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-purple-500/30 transition transform hover:-translate-y-0.5">
-                        📚 My Library
+                        💬 Countries
                     </Link>
                 </div>
 
@@ -105,7 +105,7 @@ export default function ShopIndex({ books, purchasedBookIds, phone }) {
                                         {book.image_url ? (
                                             <img src={book.image_url} alt={book.title} className="w-full h-full object-cover" />
                                         ) : (
-                                            <span className="text-6xl">📖</span>
+                                            <span className="text-6xl">💬</span>
                                         )}
                                         {isOwned && (
                                             <div className="absolute top-3 right-3 bg-emerald-500 text-white text-xs font-black px-2 py-1 rounded-md shadow-lg">

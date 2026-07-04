@@ -4,13 +4,13 @@ import LipataskLayout from '@/Layouts/LipataskLayout';
 export default function MyBooks({ purchases }) {
     return (
         <LipataskLayout>
-            <Head title="My E-Books" />
+            <Head title="My Countries" />
 
             <div className="max-w-7xl mx-auto py-8 animate-[fadeIn_0.5s_ease-out]">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                     <div>
                         <h1 className="text-3xl md:text-4xl font-black text-gray-900 dark:text-white">
-                            My <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-fuchsia-500">Library</span>
+                            My <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-fuchsia-500">Countries</span>
                         </h1>
                         <p className="text-gray-500 dark:text-gray-400 mt-2">Access all your purchased self-improvement books.</p>
                     </div>
@@ -22,9 +22,9 @@ export default function MyBooks({ purchases }) {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {purchases.length === 0 ? (
                         <div className="col-span-full py-12 text-center">
-                            <div className="text-6xl mb-4">📚</div>
-                            <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Your library is empty</h3>
-                            <p className="text-gray-500 mb-6">Discover premium self-improvement books in our shop.</p>
+                            <div className="text-6xl mb-4">💬</div>
+                            <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Your country list is empty</h3>
+                            <p className="text-gray-500 mb-6">Discover premium products in our shop.</p>
                             <Link href={route('shop')} className="bg-orange-600 hover:bg-orange-500 text-white px-6 py-3 rounded-xl font-bold shadow-lg">
                                 Browse Shop
                             </Link>
@@ -40,7 +40,7 @@ export default function MyBooks({ purchases }) {
                                         {book.image_url ? (
                                             <img src={book.image_url} alt={book.title} className="w-full h-full object-cover transition transform group-hover:scale-105" />
                                         ) : (
-                                            <span className="text-6xl">📖</span>
+                                            <span className="text-6xl">💬</span>
                                         )}
                                         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                             <a href={book.file_url || '#'} target="_blank" rel="noreferrer" className="bg-white text-gray-900 px-6 py-2 rounded-full font-bold shadow-lg transform translate-y-4 group-hover:translate-y-0 transition">

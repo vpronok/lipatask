@@ -203,7 +203,7 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                     </button>
 
                     <button onClick={() => handleTabChange('shop')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'shop' ? 'bg-red-900/30 text-red-400 border border-red-500/30' : 'text-gray-400 hover:bg-white/5'}`}>
-                        <span>📚</span> E-Book Shop
+                        <span>💬</span> Chat na Wazungu
                     </button>
                 </nav>
 
@@ -533,11 +533,11 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                     </div>
                 )}
 
-                {/* --- TAB 7: E-BOOK SHOP --- */}
+                {/* --- TAB 7: CHAT NA WAZUNGU --- */}
                 {activeTab === 'shop' && (
                     <div className="animate-[fadeIn_0.3s_ease-out]">
                         <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-3xl font-black text-white">E-Book <span className="text-blue-500">Shop</span></h2>
+                            <h2 className="text-3xl font-black text-white">Chat na <span className="text-blue-500">Wazungu</span></h2>
                             <button onClick={() => setShowAddBookModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg">
                                 + Add New Book
                             </button>
@@ -545,7 +545,7 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
 
                         <div className="bg-[#11071c] rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
                             <div className="px-6 py-4 border-b border-gray-800 bg-[#150a21]">
-                                <h3 className="font-bold text-sm text-gray-300">📚 Books Directory</h3>
+                                <h3 className="font-bold text-sm text-gray-300">💬 Products Directory</h3>
                             </div>
                             <div className="overflow-x-auto pb-6">
                                 <table className="w-full text-sm text-left text-gray-300 min-w-[700px]">
