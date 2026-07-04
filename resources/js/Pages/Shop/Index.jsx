@@ -135,7 +135,7 @@ export default function ShopIndex({ books, purchasedBookIds, phone }) {
                                                     disabled={isProcessing || paymentStatus === 'pending'}
                                                     className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg shadow-orange-500/30 transition transform hover:scale-105 disabled:opacity-50"
                                                 >
-                                                    Buy Now
+                                                    Chat Now
                                                 </button>
                                             )}
                                         </div>
