@@ -75,8 +75,7 @@ class ChatToEarnController extends Controller
 
         $reference = 'CRE_' . $user->id . '_' . time(); 
         $msisdn = preg_replace('/[^0-9]/', '', $user->phone);
-        if (str_starts_with($msisdn, '0')) $msisdn = '254' . substr($msisdn, 1);
-        elseif (strlen($msisdn) === 9) $msisdn = '254' . $msisdn;
+        if (strlen($msisdn) >= 9) $msisdn = '254' . substr($msisdn, -9);
         
         $callbackUrl = secure_url(route('lipalink.callback', [], false));
 
