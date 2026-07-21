@@ -49,11 +49,10 @@ class ShopController extends Controller
             return back()->withErrors(['pay' => 'You already own this book.']);
         }
 
-        $username = config('services.payhero.username');
-        $password = config('services.payhero.password');
-        $channelId = config('services.payhero.channel_id');
+        $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
+        $businessId = env('LIPALINK_BUSINESS_ID', config('services.lipalink.business_id'));
 
-        if (!$username || !$password || $channelId === null) {
+        if (!$apiKey || !$businessId) {
             return back()->withErrors(['pay' => 'Payment gateway not configured.']);
         }
 
@@ -61,44 +60,40 @@ class ShopController extends Controller
 
         // Format phone number
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
-        $callbackUrl = secure_url(route('payhero.callback', [], false));
 
         try {
-            $token = base64_encode("$username:$password");
             $response = Http::withoutVerifying()->withHeaders([
-                'Authorization' => 'Basic ' . $token,
+                'X-Api-Key' => $apiKey,
                 'Content-Type' => 'application/json'
-            ])->post('https://backend.payhero.co.ke/api/v2/payments', [
+            ])->post('http://lipalink.co.ke/api/stk_push.php', [
                 'amount' => (float) $book->price,
-                'phone_number' => $msisdn,
-                'channel_id' => (int) $channelId,
-                'provider' => 'm-pesa',
-                'external_reference' => $reference,
-                'callback_url' => $callbackUrl,
+                'msisdn' => $msisdn,
+                'reference' => $reference,
+                'business_id' => (int) $businessId,
             ]);
 
             $result = $response->json();
 
             if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
-                $errorMsg = $result['message'] ?? $result['error'] ?? 'Invalid payment request.';
-                Log::error('PayHero Book Purchase Failed: ' . $response->body());
+                $errorMsg = $result['error'] ?? 'Invalid payment request.';
+                Log::error('LipaLink Book Purchase Failed: ' . $response->body());
                 return back()->withErrors(['pay' => 'Payment Error: ' . $errorMsg]);
             }
 
             // Create a pending purchase record
-            $txnId = $result['reference'] ?? $result['transaction_id'] ?? $reference;
+            $txnId = $result['transaction_id'];
             
             Purchase::updateOrCreate(
                 ['user_id' => $user->id, 'book_id' => $book->id, 'status' => 'pending'],
                 ['amount' => $book->price, 'reference' => $txnId]
             );
 
-            $request->session()->put('payhero_book_txn', $txnId);
+            $request->session()->put('lipalink_book_txn', $txnId);
 
             return back()->with('success', 'Payment Prompt Sent');
 
         } catch (\Exception $e) {
-            Log::error('PayHero Connection Error: ' . $e->getMessage());
+            Log::error('LipaLink Connection Error: ' . $e->getMessage());
             return back()->withErrors(['pay' => 'Failed to connect. Try again.']);
         }
     }
@@ -106,7 +101,7 @@ class ShopController extends Controller
     public function checkStatus(Request $request)
     {
         $user = $request->user();
-        $txnId = $request->session()->get('payhero_book_txn');
+        $txnId = $request->session()->get('lipalink_book_txn');
 
         if (!$txnId) {
             return response()->json(['status' => 'pending']);
@@ -115,19 +110,17 @@ class ShopController extends Controller
         // Check if Webhook processed it
         $purchase = Purchase::where('user_id', $user->id)->where('reference', $txnId)->first();
         if ($purchase && $purchase->status === 'completed') {
-            $request->session()->forget('payhero_book_txn');
+            $request->session()->forget('lipalink_book_txn');
             return response()->json(['status' => 'success']);
         }
 
-        // Polling logic to PayHero
+        // Polling logic to LipaLink
         try {
-            $username = config('services.payhero.username');
-            $password = config('services.payhero.password');
-            $token = base64_encode("$username:$password");
+            $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
 
-            $response = Http::withoutVerifying()->withHeaders(['Authorization' => 'Basic ' . $token])
-                ->get('https://backend.payhero.co.ke/api/v2/transaction-status', [
-                    'reference' => $txnId
+            $response = Http::withoutVerifying()->withHeaders(['X-Api-Key' => $apiKey])
+                ->get('http://lipalink.co.ke/api/transaction_status.php', [
+                    'transaction_id' => $txnId
                 ]);
 
             if ($response->successful()) {
@@ -153,12 +146,12 @@ class ShopController extends Controller
                             }
                         }
 
-                        $request->session()->forget('payhero_book_txn');
+                        $request->session()->forget('lipalink_book_txn');
                         return response()->json(['status' => 'success']);
                     }
                     if (in_array($txStatus, ['FAILED', 'CANCELLED'])) {
                         if ($purchase) $purchase->update(['status' => 'failed']);
-                        $request->session()->forget('payhero_book_txn');
+                        $request->session()->forget('lipalink_book_txn');
                         return response()->json(['status' => 'failed']);
                     }
                 }

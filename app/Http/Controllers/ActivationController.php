@@ -28,51 +28,47 @@ class ActivationController extends Controller
         ]);
     }
 
-    // --- PAYHERO LOGIC FOR ACTIVATION (DATABASE DRIVEN) ---
+    // --- LIPALINK LOGIC FOR ACTIVATION (DATABASE DRIVEN) ---
     public function initiatePayment(Request $request)
     {
         $user = $request->user();
         $feeValue = Setting::where('key', 'activation_fee')->first()?->value ?? 0;
 
-        $username = config('services.payhero.username');
-        $password = config('services.payhero.password');
-        $channelId = config('services.payhero.channel_id');
+        $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
+        $businessId = env('LIPALINK_BUSINESS_ID', config('services.lipalink.business_id'));
 
-        if (!$username || !$password || !$channelId) {
+        if (!$apiKey || !$businessId) {
             return back()->withErrors(['pay' => 'Payment gateway is not configured correctly on the server.']);
         }
 
-        $reference = 'ACT_' . $user->id . '_' . time(); 
+        $reference = 'ACT_' . $user->id . '_' . time();
+        
         $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
 
         // Bypass Nginx redirect blocks
-        $callbackUrl = secure_url(route('payhero.callback', [], false));
+        $callbackUrl = secure_url(route('lipalink.callback', [], false));
 
         try {
-            $token = base64_encode("$username:$password");
             // Bypass SSL verifications that can block outgoing Curl requests
             $response = Http::withoutVerifying()->withHeaders([
-                'Authorization' => 'Basic ' . $token,
+                'X-Api-Key' => $apiKey,
                 'Content-Type' => 'application/json'
-            ])->post('https://backend.payhero.co.ke/api/v2/payments', [
+            ])->post('http://lipalink.co.ke/api/stk_push.php', [
                 'amount' => (float) $feeValue,
-                'phone_number' => $msisdn,
-                'channel_id' => (int) $channelId,
-                'provider' => 'm-pesa',
-                'external_reference' => $reference,
-                'callback_url' => $callbackUrl,
+                'msisdn' => $msisdn,
+                'reference' => $reference,
+                'business_id' => (int) $businessId,
             ]);
 
             $result = $response->json();
 
             if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
-                $errorMsg = $result['message'] ?? $result['error'] ?? 'Invalid payment request.';
-                Log::error('PayHero API Error: ' . $response->body());
+                $errorMsg = $result['error'] ?? 'Invalid payment request.';
+                Log::error('LipaLink API Error: ' . $response->body());
                 return back()->withErrors(['pay' => 'Payment Error: ' . $errorMsg]);
             }
 
-            // Fallback to our reference if they don't return a specific transaction id
-            $txnId = $result['reference'] ?? $result['transaction_id'] ?? $reference;
+            $txnId = $result['transaction_id'];
 
             // FIX: CREATE PENDING TRANSACTION IN DB TO AVOID SESSION LOSS
             // We use activation/store enums to prevent MySQL column constraint crashes
@@ -87,7 +83,7 @@ class ActivationController extends Controller
             return back()->with('success', 'Prompt Sent');
 
         } catch (\Exception $e) {
-            Log::error('PayHero Connection/DB Error: ' . $e->getMessage());
+            Log::error('LipaLink Connection/DB Error: ' . $e->getMessage());
             return back()->withErrors(['pay' => 'Failed to connect to payment servers. Please try again.']);
         }
     }
@@ -107,20 +103,18 @@ class ActivationController extends Controller
             ->latest()
             ->first();
 
-        // 2. If we found it, pull the specific transaction ID and poll PayHero
+        // 2. If we found it, pull the specific transaction ID and poll LipaLink
         if ($pendingTx) {
             preg_match('/\[TXN:(.+?)\]/', $pendingTx->description, $matches);
             $txnId = $matches[1] ?? null;
 
             if ($txnId) {
                 try {
-                    $username = config('services.payhero.username');
-                    $password = config('services.payhero.password');
-                    $token = base64_encode("$username:$password");
+                    $apiKey = env('LIPALINK_API_KEY', config('services.lipalink.key'));
 
-                    $response = Http::withoutVerifying()->withHeaders(['Authorization' => 'Basic ' . $token])
-                        ->get('https://backend.payhero.co.ke/api/v2/transaction-status', [
-                            'reference' => $txnId
+                    $response = Http::withoutVerifying()->withHeaders(['X-Api-Key' => $apiKey])
+                        ->get('http://lipalink.co.ke/api/transaction_status.php', [
+                            'transaction_id' => $txnId
                         ]);
 
                     if ($response->successful()) {
@@ -156,10 +150,10 @@ class ActivationController extends Controller
     public function callback(Request $request)
     {
         $payload = $request->all();
-        Log::info('PayHero Webhook Received: ', $payload);
+        Log::info('LipaLink Webhook Received: ', $payload);
 
         $status = $payload['status'] ?? '';
-        $reference = $payload['external_reference'] ?? $payload['reference'] ?? '';
+        $reference = $payload['reference'] ?? '';
         $amount = $payload['amount'] ?? 0;
 
         $isSuccess = strcasecmp($status, 'Success') === 0;
