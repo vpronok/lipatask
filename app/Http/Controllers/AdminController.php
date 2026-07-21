@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Transaction;
 use App\Models\Setting;
 use App\Models\Book;
+use App\Models\Purchase;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Carbon\Carbon;
@@ -24,6 +25,12 @@ class AdminController extends Controller
         // Daily Analytics
         $dailySignups = User::whereDate('updated_at', $today)->where('is_active', true)->count();
         $dailyRevenue = $dailySignups * $activationFee;
+
+        // Shop Analytics
+        $dailyBookSales = Purchase::whereDate('updated_at', $today)->where('status', 'completed')->count();
+        $dailyBookRevenue = Purchase::whereDate('updated_at', $today)->where('status', 'completed')->sum('amount');
+        $totalBookSales = Purchase::where('status', 'completed')->count();
+        $totalBookRevenue = Purchase::where('status', 'completed')->sum('amount');
 
         // Historical Analytics
         $totalActiveUsers = User::where('is_active', true)->count();
@@ -102,6 +109,12 @@ class AdminController extends Controller
                 'pending_payouts' => number_format($totalPendingWithdrawals, 2),
                 'total_paid' => number_format($totalPaidOut, 2),
             ],
+            'shop_analytics' => [
+                'daily_sales' => $dailyBookSales,
+                'daily_revenue' => number_format($dailyBookRevenue, 2),
+                'total_sales' => $totalBookSales,
+                'total_revenue' => number_format($totalBookRevenue, 2),
+            ],
             'withdrawals' => $pendingWithdrawals,
             'withdrawal_history' => $historyWithdrawals,
             'users' => $users, // Now contains pagination data (.data and .links)
@@ -173,11 +186,16 @@ class AdminController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'price' => 'required|numeric|min:0',
-            'image_url' => 'nullable|url',
+            'image' => 'nullable|image|max:5120',
             'file_url' => 'nullable|url',
             'is_active' => 'boolean'
         ]);
         
+        if ($request->hasFile('image')) {
+            $path = $request->file('image')->store('books', 'public');
+            $validated['image_url'] = '/storage/' . $path;
+        }
+
         Book::create($validated);
         return back();
     }
@@ -189,11 +207,16 @@ class AdminController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'price' => 'required|numeric|min:0',
-            'image_url' => 'nullable|url',
+            'image' => 'nullable|image|max:5120',
             'file_url' => 'nullable|url',
             'is_active' => 'boolean'
         ]);
         
+        if ($request->hasFile('image')) {
+            $path = $request->file('image')->store('books', 'public');
+            $validated['image_url'] = '/storage/' . $path;
+        }
+
         $book->update($validated);
         return back();
     }

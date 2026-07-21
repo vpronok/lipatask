@@ -1,7 +1,7 @@
 import { Head, router, useForm, Link } from '@inertiajs/react';
 import { useState, useEffect, useRef } from 'react';
 
-export default function AdminDashboard({ analytics, withdrawals, withdrawal_history, users, settings, books, filters }) {
+export default function AdminDashboard({ analytics, shop_analytics, withdrawals, withdrawal_history, users, settings, books, filters }) {
     
     // --- UI NAVIGATION & MOBILE STATE ---
     const[activeTab, setActiveTab] = useState(filters?.tab || 'analytics'); 
@@ -104,12 +104,12 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
     const [showAddBookModal, setShowAddBookModal] = useState(false);
     const [editBookData, setEditBookData] = useState({});
     const addBookForm = useForm({
-        title: '', description: '', price: '', image_url: '', file_url: '', is_active: true
+        title: '', description: '', price: '', image: null, file_url: '', is_active: true
     });
 
     const openEditBookMode = (b) => {
         setEditingBook(b.id);
-        setEditBookData({ title: b.title, description: b.description || '', price: b.price, image_url: b.image_url || '', file_url: b.file_url || '', is_active: b.is_active });
+        setEditBookData({ title: b.title, description: b.description || '', price: b.price, image: null, file_url: b.file_url || '', is_active: b.is_active });
     };
     const submitBookEdit = (e, bookId) => {
         e.preventDefault();
@@ -543,6 +543,25 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                             </button>
                         </div>
 
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                            <div className="bg-[#150a21] p-4 md:p-5 rounded-2xl border border-gray-800">
+                                <p className="text-gray-500 text-[9px] md:text-[10px] uppercase font-bold mb-1">Daily Sales</p>
+                                <h3 className="text-xl md:text-2xl font-black text-white">{shop_analytics?.daily_sales || 0}</h3>
+                            </div>
+                            <div className="bg-[#150a21] p-4 md:p-5 rounded-2xl border border-gray-800">
+                                <p className="text-gray-500 text-[9px] md:text-[10px] uppercase font-bold mb-1">Daily Revenue</p>
+                                <h3 className="text-xl md:text-2xl font-black text-emerald-400">Ksh {shop_analytics?.daily_revenue || 0}</h3>
+                            </div>
+                            <div className="bg-[#150a21] p-4 md:p-5 rounded-2xl border border-gray-800">
+                                <p className="text-gray-500 text-[9px] md:text-[10px] uppercase font-bold mb-1">Total Sales</p>
+                                <h3 className="text-xl md:text-2xl font-black text-amber-500">{shop_analytics?.total_sales || 0}</h3>
+                            </div>
+                            <div className="bg-[#150a21] p-4 md:p-5 rounded-2xl border border-gray-800">
+                                <p className="text-gray-500 text-[9px] md:text-[10px] uppercase font-bold mb-1">Total Revenue</p>
+                                <h3 className="text-xl md:text-2xl font-black text-purple-400">Ksh {shop_analytics?.total_revenue || 0}</h3>
+                            </div>
+                        </div>
+
                         <div className="bg-[#11071c] rounded-2xl border border-gray-800 overflow-hidden shadow-xl">
                             <div className="px-6 py-4 border-b border-gray-800 bg-[#150a21]">
                                 <h3 className="font-bold text-sm text-gray-300">💬 Products Directory</h3>
@@ -585,7 +604,7 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                                                             <input type="text" value={editBookData.title} onChange={e => setEditBookData({...editBookData, title: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white flex-1 min-w-[120px]" placeholder="Title" required />
                                                             <input type="text" value={editBookData.description} onChange={e => setEditBookData({...editBookData, description: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white flex-1 min-w-[150px]" placeholder="Description" />
                                                             <input type="number" value={editBookData.price} onChange={e => setEditBookData({...editBookData, price: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white w-[100px]" placeholder="Price" required />
-                                                            <input type="url" value={editBookData.image_url} onChange={e => setEditBookData({...editBookData, image_url: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white flex-1 min-w-[150px]" placeholder="Image URL" />
+                                                            <input type="file" accept="image/*" onChange={e => setEditBookData({...editBookData, image: e.target.files[0]})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white flex-1 min-w-[150px]" />
                                                             <input type="url" value={editBookData.file_url} onChange={e => setEditBookData({...editBookData, file_url: e.target.value})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-sm text-white flex-1 min-w-[150px]" placeholder="File/Download URL" />
                                                             <select value={editBookData.is_active ? '1' : '0'} onChange={e => setEditBookData({...editBookData, is_active: e.target.value === '1'})} className="bg-[#090210] border border-gray-700 rounded px-3 py-1 text-xs text-white">
                                                                 <option value="1">Active</option>
@@ -650,7 +669,7 @@ export default function AdminDashboard({ analytics, withdrawals, withdrawal_hist
                             <div><label className="text-xs text-gray-400 mb-1 block">Title</label><input type="text" value={addBookForm.data.title} onChange={e=>addBookForm.setData('title', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" required/></div>
                             <div><label className="text-xs text-gray-400 mb-1 block">Description</label><textarea value={addBookForm.data.description} onChange={e=>addBookForm.setData('description', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" rows="3"></textarea></div>
                             <div><label className="text-xs text-gray-400 mb-1 block">Price (Ksh)</label><input type="number" value={addBookForm.data.price} onChange={e=>addBookForm.setData('price', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" required/></div>
-                            <div><label className="text-xs text-gray-400 mb-1 block">Cover Image URL</label><input type="url" value={addBookForm.data.image_url} onChange={e=>addBookForm.setData('image_url', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" /></div>
+                            <div><label className="text-xs text-gray-400 mb-1 block">Cover Image</label><input type="file" accept="image/*" onChange={e=>addBookForm.setData('image', e.target.files[0])} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" /></div>
                             <div><label className="text-xs text-gray-400 mb-1 block">File/Download URL</label><input type="url" value={addBookForm.data.file_url} onChange={e=>addBookForm.setData('file_url', e.target.value)} className="w-full bg-[#090210] border border-gray-700 rounded-lg p-2.5 text-white text-sm focus:border-blue-500" /></div>
                             
                             <button type="submit" disabled={addBookForm.processing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl mt-4 shadow-[0_0_15px_rgba(37,99,235,0.4)]">Save Book</button>
