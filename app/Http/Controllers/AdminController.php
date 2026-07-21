@@ -195,6 +195,7 @@ class AdminController extends Controller
             $path = $request->file('image')->store('books', 'public');
             $validated['image_url'] = '/storage/' . $path;
         }
+        unset($validated['image']);
 
         Book::create($validated);
         return back();
@@ -216,6 +217,7 @@ class AdminController extends Controller
             $path = $request->file('image')->store('books', 'public');
             $validated['image_url'] = '/storage/' . $path;
         }
+        unset($validated['image']);
 
         $book->update($validated);
         return back();
