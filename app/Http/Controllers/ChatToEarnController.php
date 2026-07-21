@@ -80,22 +80,33 @@ class ChatToEarnController extends Controller
         $callbackUrl = secure_url(route('lipalink.callback', [], false));
 
         try {
-            $payload =[
+            $payload = [
                 'amount' => (float) $request->amount, 
                 'msisdn' => $msisdn, 
                 'reference' => $reference, 
                 'business_id' => (int) $businessId,
             ];
 
-            $response = Http::withoutVerifying()
-                ->withHeaders([
-                    'X-Api-Key' => $apiKey,
-                    'Content-Type' => 'application/json'
-                ])->post('http://lipalink.co.ke/api/stk_push.php', $payload);
+            $ch = curl_init('http://lipalink.co.ke/api/stk_push.php');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => json_encode($payload),
+                CURLOPT_HTTPHEADER     => [
+                    'Content-Type: application/json',
+                    'X-Api-Key: ' . $apiKey,
+                ],
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_TIMEOUT        => 30,
+            ]);
+            $responseBody = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
-            $result = $response->json();
+            $result = json_decode($responseBody, true);
+            $isSuccessful = $httpCode >= 200 && $httpCode < 300;
 
-            if (!$response->successful() || (isset($result['success']) && $result['success'] === false)) {
+            if (!$isSuccessful || (isset($result['success']) && $result['success'] === false)) {
                 return back()->withErrors(['pay' => 'Payment Error: ' . ($result['error'] ?? 'Invalid request.')]);
             }
             
