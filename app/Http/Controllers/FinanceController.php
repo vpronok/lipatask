@@ -127,7 +127,9 @@ class FinanceController extends Controller
         $reference = 'RCH_' . $user->id . '_' . time(); 
         
         // Strict LipaLink phone formatting (2547...)
-        $msisdn = preg_replace('/^\+/', '', preg_replace('/^0/', '254', trim($user->phone)));
+        $msisdn = preg_replace('/[^0-9]/', '', $user->phone);
+        if (str_starts_with($msisdn, '0')) $msisdn = '254' . substr($msisdn, 1);
+        elseif (strlen($msisdn) === 9) $msisdn = '254' . $msisdn;
 
         try {
             $response = Http::withoutVerifying()->withHeaders([
